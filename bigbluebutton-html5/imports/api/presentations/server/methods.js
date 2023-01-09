@@ -1,9 +1,14 @@
 import { Meteor } from 'meteor/meteor';
-import mapToAcl from '/imports/startup/mapToAcl';
 import removePresentation from './methods/removePresentation';
+import setPresentationRenderedInToast from './methods/setPresentationRenderedInToast';
 import setPresentation from './methods/setPresentation';
+import setPresentationDownloadable from './methods/setPresentationDownloadable';
+import exportPresentationToChat from './methods/exportPresentationToChat';
 
-Meteor.methods(mapToAcl(['methods.removePresentation', 'methods.setPresentation'], {
+Meteor.methods({
   removePresentation,
   setPresentation,
-}));
+  setPresentationDownloadable,
+  exportPresentationToChat,
+  setPresentationRenderedInToast,
+});

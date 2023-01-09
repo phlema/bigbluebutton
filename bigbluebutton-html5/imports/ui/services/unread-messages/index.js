@@ -1,17 +1,18 @@
 import { Tracker } from 'meteor/tracker';
 
 import Storage from '/imports/ui/services/storage/session';
-import Auth from '/imports/ui/services/auth';
-import Chats from '/imports/api/chat';
 
 const CHAT_CONFIG = Meteor.settings.public.chat;
 const STORAGE_KEY = CHAT_CONFIG.storage_key;
-const PUBLIC_CHAT_USERID = CHAT_CONFIG.public_userid;
+const PUBLIC_GROUP_CHAT_ID = CHAT_CONFIG.public_group_id;
 
 class UnreadMessagesTracker {
   constructor() {
     this._tracker = new Tracker.Dependency();
-    this._unreadChats = { ...Storage.getItem('UNREAD_CHATS'), [PUBLIC_CHAT_USERID]: (new Date()).getTime() };
+    this._unreadChats = {
+      ...Storage.getItem('UNREAD_CHATS'),
+      [PUBLIC_GROUP_CHAT_ID]: (new Date()).getTime(),
+    };
     this.get = this.get.bind(this);
   }
 
@@ -31,27 +32,22 @@ class UnreadMessagesTracker {
     return this._unreadChats[chatID];
   }
 
-  getUnreadMessages(chatID) {
-    const filter = {
-      fromTime: {
-        $gt: this.get(chatID),
-      },
-      fromUserId: { $ne: Auth.userID },
-    };
-    // Minimongo does not support $eq. See https://github.com/meteor/meteor/issues/4142
-    if (chatID === PUBLIC_CHAT_USERID) {
-      filter.toUserId = { $not: { $ne: chatID } };
-    } else {
-      filter.toUserId = { $not: { $ne: Auth.userID } };
-      filter.fromUserId.$not = { $ne: chatID };
-    }
-    const messages = Chats.find(filter).fetch();
-    return messages;
-  }
+  getUnreadMessages(chatID, messages) {
+    const isPublicChat = chatID === PUBLIC_GROUP_CHAT_ID;
 
-  count(chatID) {
-    const messages = this.getUnreadMessages(chatID);
-    return messages.length;
+    let unreadMessages = [];
+
+    if (messages[chatID]) {
+      const contextChat = messages[chatID];
+      const unreadTimewindows = contextChat.unreadTimeWindows;
+      for (const unreadTimeWindowId of unreadTimewindows) {
+        unreadMessages.push(isPublicChat
+          ? contextChat?.preJoinMessages[unreadTimeWindowId] || contextChat?.posJoinMessages[unreadTimeWindowId]
+          : contextChat?.messageGroups[unreadTimeWindowId]);
+      }
+    }
+
+    return unreadMessages;
   }
 }
 

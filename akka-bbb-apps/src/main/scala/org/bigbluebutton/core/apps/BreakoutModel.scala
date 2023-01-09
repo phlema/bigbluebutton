@@ -4,23 +4,27 @@ import org.bigbluebutton.core.domain.{ BreakoutRoom2x, BreakoutUser }
 
 object BreakoutModel {
   def create(
-    parentId:      String,
-    id:            String,
-    externalId:    String,
-    name:          String,
-    sequence:      Integer,
-    freeJoin:      Boolean,
-    voiceConf:     String,
-    assignedUsers: Vector[String]
+      parentId:      String,
+      id:            String,
+      externalId:    String,
+      name:          String,
+      sequence:      Integer,
+      shortName:     String,
+      isDefaultName: Boolean,
+      freeJoin:      Boolean,
+      voiceConf:     String,
+      assignedUsers: Vector[String],
+      captureNotes:  Boolean,
+      captureSlides: Boolean,
   ): BreakoutRoom2x = {
-    new BreakoutRoom2x(id, externalId, name, parentId, sequence, freeJoin, voiceConf, assignedUsers, Vector(), Vector(), None, false)
+    new BreakoutRoom2x(id, externalId, name, parentId, sequence, shortName, isDefaultName, freeJoin, voiceConf, assignedUsers, Vector(), Vector(), None, false, captureNotes, captureSlides)
   }
 
 }
 
 case class BreakoutModel(
     startedOn:         Option[Long],
-    durationInMinutes: Int,
+    durationInSeconds: Int,
     rooms:             Map[String, BreakoutRoom2x]
 ) {
 
@@ -75,4 +79,9 @@ case class BreakoutModel(
   def removeRoom(id: String): BreakoutModel = {
     copy(rooms = rooms - id)
   }
+
+  def setTime(newDurationInSeconds: Int): BreakoutModel = {
+    copy(durationInSeconds = newDurationInSeconds)
+  }
+
 }

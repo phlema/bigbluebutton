@@ -1,42 +1,46 @@
-import AuthSingleton from '/imports/ui/services/auth';
-import Slides from '/imports/api/slides';
+import Auth from '/imports/ui/services/auth';
+import Presentations from '/imports/api/presentations';
 import { makeCall } from '/imports/ui/services/api';
+import { throttle } from 'lodash';
 
-const getSlideData = (presentationId) => {
-  // Get userId and meetingId
-  const meetingId = AuthSingleton.meetingID;
+const PAN_ZOOM_INTERVAL = Meteor.settings.public.presentation.panZoomInterval || 200;
 
-  // Get total number of slides in this presentation
-  const numberOfSlides = Slides.find({
+const getNumberOfSlides = (podId, presentationId) => {
+  const meetingId = Auth.meetingID;
+
+  const presentation = Presentations.findOne({
     meetingId,
-    presentationId,
-  }).fetch().length;
+    podId,
+    id: presentationId,
+  });
 
-  return {
-    numberOfSlides,
-  };
+  return presentation && presentation.pages ? presentation.pages.length : 0;
 };
 
-const previousSlide = (currentSlideNum) => {
+const previousSlide = (currentSlideNum, podId) => {
   if (currentSlideNum > 1) {
-    makeCall('switchSlide', currentSlideNum - 1);
+    makeCall('switchSlide', currentSlideNum - 1, podId);
   }
 };
 
-const nextSlide = (currentSlideNum, numberOfSlides) => {
+const nextSlide = (currentSlideNum, numberOfSlides, podId) => {
   if (currentSlideNum < numberOfSlides) {
-    makeCall('switchSlide', currentSlideNum + 1);
+    makeCall('switchSlide', currentSlideNum + 1, podId);
   }
 };
 
-const skipToSlide = (event) => {
-  const requestedSlideNum = parseInt(event.target.value, 10);
-  makeCall('switchSlide', requestedSlideNum);
+const zoomSlide = throttle((currentSlideNum, podId, widthRatio, heightRatio, xOffset, yOffset) => {
+  makeCall('zoomSlide', currentSlideNum, podId, widthRatio, heightRatio, xOffset, yOffset);
+}, PAN_ZOOM_INTERVAL);
+
+const skipToSlide = (requestedSlideNum, podId) => {
+  makeCall('switchSlide', requestedSlideNum, podId);
 };
 
 export default {
-  getSlideData,
+  getNumberOfSlides,
   nextSlide,
   previousSlide,
   skipToSlide,
+  zoomSlide,
 };

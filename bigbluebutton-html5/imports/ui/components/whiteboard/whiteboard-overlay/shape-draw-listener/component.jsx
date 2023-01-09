@@ -1,10 +1,14 @@
 import React, { Component } from 'react';
 import PropTypes from 'prop-types';
+import {Meteor} from "meteor/meteor";
 
 const ANNOTATION_CONFIG = Meteor.settings.public.whiteboard.annotations;
 const DRAW_START = ANNOTATION_CONFIG.status.start;
 const DRAW_UPDATE = ANNOTATION_CONFIG.status.update;
 const DRAW_END = ANNOTATION_CONFIG.status.end;
+
+// maximum value of z-index to prevent other things from overlapping
+const MAX_Z_INDEX = (2 ** 31) - 1;
 
 export default class ShapeDrawListener extends Component {
   constructor(props) {
@@ -24,6 +28,7 @@ export default class ShapeDrawListener extends Component {
       y: undefined,
     };
 
+    this.isFilled = false;
     // to track the status of drawing
     this.isDrawing = false;
 
@@ -57,10 +62,14 @@ export default class ShapeDrawListener extends Component {
     this.isDrawing = true;
 
     const {
+      actions,
+    } = this.props;
+
+    const {
       getTransformedSvgPoint,
       generateNewShapeId,
       svgCoordinateToPercentages,
-    } = this.props.actions;
+    } = actions;
 
     // sending the first message
     let transformedSvgPoint = getTransformedSvgPoint(clientX, clientY);
@@ -95,10 +104,14 @@ export default class ShapeDrawListener extends Component {
     }
 
     const {
+      actions,
+    } = this.props;
+
+    const {
       checkIfOutOfBounds,
       getTransformedSvgPoint,
       svgCoordinateToPercentages,
-    } = this.props.actions;
+    } = actions;
 
     // get the transformed svg coordinate
     let transformedSvgPoint = getTransformedSvgPoint(clientX, clientY);
@@ -128,6 +141,7 @@ export default class ShapeDrawListener extends Component {
     // if you switch to a different window using Alt+Tab while mouse is down and release it
     // it wont catch mouseUp and will keep tracking the movements. Thus we need this check.
     } else {
+      this.isFilled = event.ctrlKey;
       this.sendLastMessage();
     }
   }
@@ -135,68 +149,85 @@ export default class ShapeDrawListener extends Component {
   handleTouchMove(event) {
     event.preventDefault();
     const { clientX, clientY } = event.changedTouches[0];
+    this.isFilled = event.ctrlKey;
     this.commonDrawMoveHandler(clientX, clientY);
   }
 
-  handleTouchEnd() {
+  handleTouchEnd(event) {
+    this.isFilled = event.ctrlKey;
     this.sendLastMessage();
   }
 
-  handleTouchCancel() {
+  handleTouchCancel(event) {
+    this.isFilled = event.ctrlKey;
     this.sendLastMessage();
   }
 
   // main mouse down handler
   handleMouseDown(event) {
-    // Sometimes when you Alt+Tab while drawing it can happen that your mouse is up,
-    // but the browser didn't catch it. So check it here.
-    if (this.isDrawing) {
-      return this.sendLastMessage();
+    const isLeftClick = event.button === 0;
+    const isRightClick = event.button === 2;
+
+    if (!this.isDrawing) {
+      if (isLeftClick) {
+        window.addEventListener('mouseup', this.handleMouseUp);
+        window.addEventListener('mousemove', this.handleMouseMove, true);
+
+        const { clientX, clientY } = event;
+        this.commonDrawStartHandler(clientX, clientY);
+      }
+
+    // if you switch to a different window using Alt+Tab while mouse is down and release it
+    // it wont catch mouseUp and will keep tracking the movements. Thus we need this check.
+    } else if (isRightClick) {
+      this.discardAnnotation();
     }
-
-    window.addEventListener('mouseup', this.handleMouseUp);
-    window.addEventListener('mousemove', this.handleMouseMove, true);
-
-    const { clientX, clientY } = event;
-    return this.commonDrawStartHandler(clientX, clientY);
   }
 
   // main mouse move handler
   handleMouseMove(event) {
     const { clientX, clientY } = event;
+    this.isFilled = event.ctrlKey;
     this.commonDrawMoveHandler(clientX, clientY);
   }
 
   // main mouse up handler
-  handleMouseUp() {
+  handleMouseUp(event) {
+    this.isFilled = event.ctrlKey;
     this.sendLastMessage();
   }
 
   sendCoordinates() {
+    const {
+      actions,
+      drawSettings,
+    } = this.props;
+
     // check the current drawing status
     if (!this.isDrawing) {
       return;
     }
     // check if a current coordinate is not the same as an initial one
     // it prevents us from drawing dots on random clicks
-    if (this.currentCoordinate.x === this.initialCoordinate.x &&
-        this.currentCoordinate.y === this.initialCoordinate.y) {
+    if (this.currentCoordinate.x === this.initialCoordinate.x
+        && this.currentCoordinate.y === this.initialCoordinate.y) {
       return;
     }
 
     // check if previously sent coordinate is not equal to a current one
-    if (this.currentCoordinate.x === this.lastSentCoordinate.x &&
-        this.currentCoordinate.y === this.lastSentCoordinate.y) {
+    if (this.currentCoordinate.x === this.lastSentCoordinate.x
+        && this.currentCoordinate.y === this.lastSentCoordinate.y) {
       return;
     }
 
-    const { getCurrentShapeId } = this.props.actions;
+    const { getCurrentShapeId } = actions;
     this.handleDrawCommonAnnotation(
       this.initialCoordinate,
       this.currentCoordinate,
       this.currentStatus,
       getCurrentShapeId(),
-      this.props.drawSettings.tool,
+      drawSettings.tool,
+      this.isFilled,
     );
     this.lastSentCoordinate = this.currentCoordinate;
 
@@ -206,17 +237,23 @@ export default class ShapeDrawListener extends Component {
   }
 
   sendLastMessage() {
+    const {
+      actions,
+      drawSettings,
+    } = this.props;
+
     if (this.isDrawing) {
       // make sure we are drawing and we have some coordinates sent for this shape before
       // to prevent sending DRAW_END on a random mouse click
       if (this.lastSentCoordinate.x && this.lastSentCoordinate.y) {
-        const { getCurrentShapeId } = this.props.actions;
+        const { getCurrentShapeId } = actions;
         this.handleDrawCommonAnnotation(
           this.initialCoordinate,
           this.currentCoordinate,
           DRAW_END,
           getCurrentShapeId(),
-          this.props.drawSettings.tool,
+          drawSettings.tool,
+          this.isFilled,
         );
       }
       this.resetState();
@@ -249,16 +286,31 @@ export default class ShapeDrawListener extends Component {
 
   // since Rectangle / Triangle / Ellipse / Line have the same coordinate structure
   // we use the same function for all of them
-  handleDrawCommonAnnotation(startPoint, endPoint, status, id, shapeType) {
-    const { normalizeThickness, sendAnnotation } = this.props.actions;
+  handleDrawCommonAnnotation(startPoint, endPoint, status, id, shapeType, isFilled) {
+    const {
+      whiteboardId,
+      userId,
+      actions,
+      drawSettings,
+    } = this.props;
+
+    const {
+      normalizeThickness,
+      sendAnnotation,
+    } = actions;
+
+    const {
+      color,
+      thickness,
+    } = drawSettings;
 
     const annotation = {
       id,
       status,
       annotationType: shapeType,
       annotationInfo: {
-        color: this.props.drawSettings.color,
-        thickness: normalizeThickness(this.props.drawSettings.thickness),
+        color,
+        thickness: normalizeThickness(thickness),
         points: [
           startPoint.x,
           startPoint.y,
@@ -266,34 +318,63 @@ export default class ShapeDrawListener extends Component {
           endPoint.y,
         ],
         id,
-        whiteboardId: this.props.whiteboardId,
+        whiteboardId,
         status,
         type: shapeType,
+        fill: isFilled,
       },
-      wbId: this.props.whiteboardId,
-      userId: this.props.userId,
+      wbId: whiteboardId,
+      userId,
       position: 0,
     };
 
-    sendAnnotation(annotation);
+    sendAnnotation(annotation, whiteboardId);
+  }
+
+  discardAnnotation() {
+    const {
+      actions,
+    } = this.props;
+
+    const {
+      getCurrentShapeId,
+      clearPreview,
+    } = actions;
+
+    this.resetState();
+    clearPreview(getCurrentShapeId());
   }
 
   render() {
-    const { tool } = this.props.drawSettings;
-    const baseName = Meteor.settings.public.app.basename;
+    const {
+      actions,
+      drawSettings,
+    } = this.props;
+
+    const {
+      contextMenuHandler,
+    } = actions;
+
+    const {
+      tool,
+    } = drawSettings;
+
+    const baseName = Meteor.settings.public.app.cdn + Meteor.settings.public.app.basename + Meteor.settings.public.app.instanceId;
     const shapeDrawStyle = {
       width: '100%',
       height: '100%',
       touchAction: 'none',
-      zIndex: 2 ** 31 - 1, // maximun value of z-index to prevent other things from overlapping
+      zIndex: MAX_Z_INDEX,
       cursor: `url('${baseName}/resources/images/whiteboard-cursor/${tool !== 'rectangle' ? tool : 'square'}.png'), default`,
     };
+
     return (
       <div
         onTouchStart={this.handleTouchStart}
         role="presentation"
         style={shapeDrawStyle}
         onMouseDown={this.handleMouseDown}
+        onContextMenu={contextMenuHandler}
       />
     );
   }
@@ -328,6 +409,6 @@ ShapeDrawListener.propTypes = {
     // Annotation thickness (not normalized)
     thickness: PropTypes.number.isRequired,
     // The name of the tool currently selected
-    tool: PropTypes.string.isRequired,
+    tool: PropTypes.string,
   }).isRequired,
 };

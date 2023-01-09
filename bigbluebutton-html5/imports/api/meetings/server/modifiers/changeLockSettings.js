@@ -9,11 +9,28 @@ export default function changeLockSettings(meetingId, payload) {
     disableMic: Boolean,
     disablePrivChat: Boolean,
     disablePubChat: Boolean,
+    disableNotes: Boolean,
+    hideUserList: Boolean,
     lockedLayout: Boolean,
     lockOnJoin: Boolean,
     lockOnJoinConfigurable: Boolean,
-    setBy: String,
+    hideViewersCursor: Boolean,
+    setBy: Match.Maybe(String),
   });
+
+  const {
+    disableCam,
+    disableMic,
+    disablePrivChat,
+    disablePubChat,
+    disableNotes,
+    hideUserList,
+    lockedLayout,
+    lockOnJoin,
+    lockOnJoinConfigurable,
+    hideViewersCursor,
+    setBy,
+  } = payload;
 
   const selector = {
     meetingId,
@@ -21,21 +38,32 @@ export default function changeLockSettings(meetingId, payload) {
 
   const modifier = {
     $set: {
-      lockSettingsProp: payload,
+      lockSettingsProps: {
+        disableCam,
+        disableMic,
+        disablePrivateChat: disablePrivChat,
+        disablePublicChat: disablePubChat,
+        disableNotes,
+        hideUserList,
+        lockedLayout,
+        lockOnJoin,
+        lockOnJoinConfigurable,
+        hideViewersCursor,
+        setBy,
+      },
     },
   };
 
-  const cb = (err, numChanged) => {
-    if (err) {
-      return Logger.error(`Changing meeting={${meetingId}} lock settings: ${err}`);
+
+  try {
+    const { numberAffected } = Meetings.upsert(selector, modifier);
+
+    if (numberAffected) {
+      Logger.info(`Changed meeting={${meetingId}} updated lock settings`);
+    } else {
+      Logger.info(`meeting={${meetingId}} lock settings were not updated`);
     }
-
-    if (!numChanged) {
-      return Logger.info(`meeting={${meetingId}} lock settings were not updated`);
-    }
-
-    return Logger.info(`Changed meeting={${meetingId}} updated lock settings`);
-  };
-
-  return Meetings.upsert(selector, modifier, cb);
+  } catch (err) {
+    Logger.error(`Changing meeting={${meetingId}} lock settings: ${err}`);
+  }
 }

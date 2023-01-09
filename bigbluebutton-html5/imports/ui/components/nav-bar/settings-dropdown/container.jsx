@@ -1,66 +1,41 @@
-import React, { Component } from 'react';
-import browser from 'browser-detect';
+import React from 'react';
+import { withTracker } from 'meteor/react-meteor-data';
+import deviceInfo from '/imports/utils/deviceInfo';
+import browserInfo from '/imports/utils/browserInfo';
 import SettingsDropdown from './component';
-import { toggleFullScreen } from './service';
+import audioCaptionsService from '/imports/ui/components/audio/captions/service';
+import FullscreenService from '/imports/ui/components/common/fullscreen-button/service';
+import { meetingIsBreakout } from '/imports/ui/components/app/service';
+import { layoutSelectInput, layoutSelect } from '../../layout/context';
+import { SMALL_VIEWPORT_BREAKPOINT } from '../../layout/enums';
 
-export default class SettingsDropdownContainer extends Component {
-  constructor(props) {
-    super(props);
+const { isIphone } = deviceInfo;
+const { isSafari, isValidSafariVersion } = browserInfo;
 
-    this.state = {
-      isFullScreen: false,
-    };
+const noIOSFullscreen = !!(((isSafari && !isValidSafariVersion) || isIphone));
 
-    this.handleFullscreenChange = this.handleFullscreenChange.bind(this);
-  }
+const SettingsDropdownContainer = (props) => {
+  const { width: browserWidth } = layoutSelectInput((i) => i.browser);
+  const isMobile = browserWidth <= SMALL_VIEWPORT_BREAKPOINT;
+  const isRTL = layoutSelect((i) => i.isRTL);
 
-  componentDidMount() {
-    const fullscreenChangedEvents = [
-      'fullscreenchange',
-      'webkitfullscreenchange',
-      'mozfullscreenchange',
-      'MSFullscreenChange',
-    ];
+  return (
+    <SettingsDropdown {...{ isMobile, isRTL, ...props }} />
+  );
+};
 
-    fullscreenChangedEvents.forEach(event =>
-      document.addEventListener(event, this.handleFullscreenChange));
-  }
-
-  componentWillUnmount() {
-    const fullscreenChangedEvents = [
-      'fullscreenchange',
-      'webkitfullscreenchange',
-      'mozfullscreenchange',
-      'MSFullscreenChange',
-    ];
-
-    fullscreenChangedEvents.forEach(event =>
-      document.removeEventListener(event, this.fullScreenToggleCallback));
-  }
-
-  handleFullscreenChange() {
-    if (document.fullscreenElement
-      || document.webkitFullscreenElement
-      || document.mozFullScreenElement
-      || document.msFullscreenElement) {
-      this.setState({ isFullScreen: true });
-    } else {
-      this.setState({ isFullScreen: false });
-    }
-  }
-
-  render() {
-    const handleToggleFullscreen = toggleFullScreen;
-    const isFullScreen = this.state.isFullScreen;
-    const result = browser();
-    const isAndroid = result.os.includes('Android');
-
-    return (
-      <SettingsDropdown
-        handleToggleFullscreen={handleToggleFullscreen}
-        isFullScreen={isFullScreen}
-        isAndroid={isAndroid}
-      />
-    );
-  }
-}
+export default withTracker((props) => {
+  const handleToggleFullscreen = () => FullscreenService.toggleFullScreen();
+  return {
+    amIModerator: props.amIModerator,
+    audioCaptionsEnabled: audioCaptionsService.hasAudioCaptions(),
+    audioCaptionsActive: audioCaptionsService.getAudioCaptions(),
+    audioCaptionsSet: (value) => audioCaptionsService.setAudioCaptions(value),
+    isMobile: deviceInfo.isMobile,
+    handleToggleFullscreen,
+    noIOSFullscreen,
+    isMeteorConnected: Meteor.status().connected,
+    isBreakoutRoom: meetingIsBreakout(),
+    isDropdownOpen: Session.get('dropdownOpen'),
+  };
+})(SettingsDropdownContainer);

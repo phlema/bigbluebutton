@@ -1,7 +1,7 @@
 package org.bigbluebutton.api2.meeting
 
 import org.bigbluebutton.api2.SystemConfiguration
-import org.bigbluebutton.api2.bus.{MsgToAkkaApps, MsgToAkkaAppsEventBus}
+import org.bigbluebutton.api2.bus.{ MsgToAkkaApps, MsgToAkkaAppsEventBus }
 import org.bigbluebutton.common2.domain.DefaultProps
 import org.bigbluebutton.common2.msgs._
 
@@ -28,7 +28,8 @@ trait ToAkkaAppsSendersTrait extends SystemConfiguration {
     val header = BbbCoreHeaderWithMeetingId(RegisterUserReqMsg.NAME, msg.meetingId)
     val body = RegisterUserReqMsgBody(meetingId = msg.meetingId, intUserId = msg.intUserId,
       name = msg.name, role = msg.role, extUserId = msg.extUserId, authToken = msg.authToken,
-      avatarURL = msg.avatarURL, guest = msg.guest, authed = msg.authed, guestStatus = msg.guestStatus)
+      avatarURL = msg.avatarURL, guest = msg.guest, authed = msg.authed, guestStatus = msg.guestStatus,
+      excludeFromDashboard = msg.excludeFromDashboard)
     val req = RegisterUserReqMsg(header, body)
     val message = BbbCommonEnvCoreMsg(envelope, req)
     sendToBus(message)

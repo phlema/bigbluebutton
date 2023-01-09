@@ -1,6 +1,5 @@
-# Set encoding to utf-8
-# encoding: UTF-8
-#
+# frozen_string_literal: true
+
 # BigBlueButton open source conferencing system - http://www.bigbluebutton.org/
 #
 # Copyright (c) 2017 BigBlueButton Inc. and by respective authors (see below).
@@ -17,41 +16,98 @@
 #
 # You should have received a copy of the GNU Lesser General Public License along
 # with BigBlueButton; if not, see <http://www.gnu.org/licenses/>.
-#
 
-
-require '../lib/recordandplayback'
+require File.expand_path('../../../lib/recordandplayback', __FILE__)
 require 'logger'
-require 'trollop'
+require 'optimist'
 require 'yaml'
 
+AUDIO_ARCHIVE_FORMAT = {
+  extension: 'opus',
+  # TODO: consider changing bitrate based on channels or sample rate - this is
+  # overkill if freeswitch is configured in a mono or low quality profile
+  parameters: [
+    %w[-c:a libopus -b:a 128K -f ogg],
+  ]
+}.freeze
 
 def archive_events(meeting_id, redis_host, redis_port, redis_password, raw_archive_dir, break_timestamp)
   BigBlueButton.logger.info("Archiving events for #{meeting_id}")
-  #begin
-    redis = BigBlueButton::RedisWrapper.new(redis_host, redis_port, redis_password)
-    events_archiver = BigBlueButton::RedisEventsArchiver.new redis    
-    events = events_archiver.store_events(meeting_id,
-                          "#{raw_archive_dir}/#{meeting_id}/events.xml",
-                          break_timestamp)
-  #rescue => e
-  #  BigBlueButton.logger.warn("Failed to archive events for #{meeting_id}. " + e.to_s)
-  #end
+  redis = BigBlueButton::RedisWrapper.new(redis_host, redis_port, redis_password)
+  events_archiver = BigBlueButton::RedisEventsArchiver.new(redis)
+  events_archiver.store_events(meeting_id, File.join(raw_archive_dir, meeting_id, 'events.xml'), break_timestamp) do |events|
+    # Adjust the audio filenames to match the audio archive format
+    events.xpath('/recording/event[@module="VOICE"]/filename').each do |filename|
+      if filename.content.end_with?('.wav')
+        filename.content = "#{File.basename(filename.content, '.wav')}.#{AUDIO_ARCHIVE_FORMAT[:extension]}"
+      end
+    end
+  end
+end
+
+def archive_notes(meeting_id, notes_endpoint, notes_formats, raw_archive_dir)
+  BigBlueButton.logger.info("Archiving notes for #{meeting_id}")
+  events = Nokogiri::XML(File.open("#{raw_archive_dir}/#{meeting_id}/events.xml"))
+  notes_id = BigBlueButton::Events.get_notes_id(events)
+
+  notes_dir = "#{raw_archive_dir}/#{meeting_id}/notes"
+  FileUtils.mkdir_p(notes_dir)
+
+  tmp_note = "#{notes_dir}/tmp_note.txt"
+  base_path_notes = CGI.escape notes_id
+  if base_path_notes != "undefined"
+    BigBlueButton.try_download("#{notes_endpoint}/#{base_path_notes}/export/txt", tmp_note)
+  end
+  if File.exist? tmp_note
+    # If the notes are empty, do not archive them
+    blank = false
+    content = File.open(tmp_note).read
+    if content.strip.empty?
+      blank = true
+    end
+    FileUtils.rm_f(tmp_note)
+    if blank
+      BigBlueButton.logger.info("Empty notes for #{meeting_id}")
+      return
+    end
+  else
+    BigBlueButton.logger.info("Notes were not used in #{meeting_id}")
+    return
+  end
+
+  notes_formats.each do |format|
+    BigBlueButton.try_download("#{notes_endpoint}/#{CGI.escape notes_id}/export/#{format}", "#{notes_dir}/notes.#{format}")
+  end
 end
 
 def archive_audio(meeting_id, audio_dir, raw_archive_dir)
-  BigBlueButton.logger.info("Archiving audio #{audio_dir}/#{meeting_id}-*.wav")
-  audio_dest_dir = "#{raw_archive_dir}/#{meeting_id}/audio"
+  BigBlueButton.logger.info("Archiving audio #{audio_dir}/#{meeting_id}-*.*")
+  audio_dest_dir = File.join(raw_archive_dir, meeting_id, 'audio')
   FileUtils.mkdir_p(audio_dest_dir)
-  audio_files = Dir.glob("#{audio_dir}/#{meeting_id}-*.wav")
+  audio_files = Dir.glob("#{audio_dir}/#{meeting_id}-*.*")
   if audio_files.empty?
     BigBlueButton.logger.warn("No audio found for #{meeting_id}")
     return
   end
-  ret = BigBlueButton.exec_ret('rsync', '-rstv', *audio_files,
-          "#{raw_archive_dir}/#{meeting_id}/audio/")
-  if ret != 0
-    BigBlueButton.logger.warn("Failed to archive audio for #{meeting_id}")
+  audio_files.each do |audio_file|
+    # Recompress the audio only if freeswitch saved an uncompressed wav, otherwise copy
+    if audio_file.end_with?('.wav')
+      output_basename = File.join(audio_dest_dir, File.basename(audio_file, '.wav'))
+      # Note that the encode method saves to a temp file then renames to the
+      # final filename, making this safe for segmented recordings that are
+      # concurrently being processed.
+      BigBlueButton::EDL.encode(audio_file, nil, AUDIO_ARCHIVE_FORMAT, output_basename)
+    else
+      ret = BigBlueButton.exec_ret('rsync', '-stv', audio_file, audio_dest_dir)
+      BigBlueButton.logger.warn("Failed to archive #{audio_file}") if ret != 0
+    end
+  end
+end
+
+def delete_audio(meeting_id, audio_dir)
+  BigBlueButton.logger.info("Deleting audio #{audio_dir}/#{meeting_id}-*.*")
+  Dir.glob("#{audio_dir}/#{meeting_id}-*.*").each do |audio_file|
+    FileUtils.rm_f(audio_file)
   end
 end
 
@@ -102,31 +158,31 @@ end
 
 ################## START ################################
 
-opts = Trollop::options do
+opts = Optimist::options do
   opt :meeting_id, "Meeting id to archive", type: :string
   opt :break_timestamp, "Chapter break end timestamp", type: :integer
 end
-Trollop::die :meeting_id, "must be provided" if opts[:meeting_id].nil?
+Optimist::die :meeting_id, "must be provided" if opts[:meeting_id].nil?
 
 meeting_id = opts[:meeting_id]
 break_timestamp = opts[:break_timestamp]
 
-# This script lives in scripts/archive/steps while bigbluebutton.yml lives in scripts/
-props = YAML::load(File.open('bigbluebutton.yml'))
-
+props = BigBlueButton.read_props
 audio_dir = props['raw_audio_src']
 recording_dir = props['recording_dir']
 raw_archive_dir = "#{recording_dir}/raw"
 deskshare_dir = props['raw_deskshare_src']
-screenshare_dir = props['raw_screenshare_src']
 redis_host = props['redis_host']
 redis_port = props['redis_port']
 redis_password = props['redis_password']
 presentation_dir = props['raw_presentation_src']
-video_dir = props['raw_video_src']
 kurento_video_dir = props['kurento_video_src']
 kurento_screenshare_dir = props['kurento_screenshare_src']
+mediasoup_video_dir = props['mediasoup_video_src']
+mediasoup_screenshare_dir = props['mediasoup_screenshare_src']
 log_dir = props['log_dir']
+notes_endpoint = props['notes_endpoint']
+notes_formats = props['notes_formats']
 
 # Determine the filenames for the done and fail files
 if !break_timestamp.nil?
@@ -142,17 +198,31 @@ BigBlueButton.logger = Logger.new("#{log_dir}/archive-#{meeting_id}.log", 'daily
 target_dir = "#{raw_archive_dir}/#{meeting_id}"
 FileUtils.mkdir_p target_dir
 archive_events(meeting_id, redis_host, redis_port, redis_password, raw_archive_dir, break_timestamp)
+# FreeSWITCH Audio files
 archive_audio(meeting_id, audio_dir, raw_archive_dir)
-archive_directory("#{presentation_dir}/#{meeting_id}/#{meeting_id}",
-                  "#{target_dir}/presentation")
-archive_directory("#{screenshare_dir}/#{meeting_id}",
-                  "#{target_dir}/deskshare")
-archive_directory("#{video_dir}/#{meeting_id}",
-                  "#{target_dir}/video/#{meeting_id}")
-archive_directory("#{kurento_screenshare_dir}/#{meeting_id}",
-                  "#{target_dir}/deskshare")
-archive_directory("#{kurento_video_dir}/#{meeting_id}",
-                  "#{target_dir}/video/#{meeting_id}")
+# Etherpad notes
+archive_notes(meeting_id, notes_endpoint, notes_formats, raw_archive_dir)
+# Presentation files
+archive_directory("#{presentation_dir}/#{meeting_id}/#{meeting_id}", "#{target_dir}/presentation")
+# Kurento media
+archive_directory("#{kurento_screenshare_dir}/#{meeting_id}", "#{target_dir}/deskshare")
+archive_directory("#{kurento_video_dir}/#{meeting_id}", "#{target_dir}/video/#{meeting_id}")
+# mediasoup media
+archive_directory("#{mediasoup_screenshare_dir}/#{meeting_id}", "#{target_dir}/deskshare")
+archive_directory("#{mediasoup_video_dir}/#{meeting_id}", "#{target_dir}/video/#{meeting_id}")
+
+# If this was the last (or only) segment in a recording, delete the original media files
+if break_timestamp.nil?
+  BigBlueButton.logger.info('Deleting originals of archived media files.')
+  # FreeSWITCH Audio files
+  delete_audio(meeting_id, audio_dir)
+  # Kurento media
+  FileUtils.rm_rf("#{kurento_screenshare_dir}/#{meeting_id}")
+  FileUtils.rm_rf("#{kurento_video_dir}/#{meeting_id}")
+  # mediasoup media
+  FileUtils.rm_rf("#{mediasoup_screenshare_dir}/#{meeting_id}")
+  FileUtils.rm_rf("#{mediasoup_video_dir}/#{meeting_id}")
+end
 
 if not archive_has_recording_marks?(meeting_id, raw_archive_dir, break_timestamp)
   BigBlueButton.logger.info("There's no recording marks for #{meeting_id}, not processing recording.")

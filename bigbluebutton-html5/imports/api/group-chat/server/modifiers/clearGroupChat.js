@@ -1,13 +1,16 @@
 import GroupChat from '/imports/api/group-chat';
 import Logger from '/imports/startup/server/logger';
-import clearGroupChatMsg from 'imports/api/group-chat-msg/server/modifiers/clearGroupChatMsg';
+import clearGroupChatMsg from '/imports/api/group-chat-msg/server/modifiers/clearGroupChatMsg';
 
 export default function clearGroupChat(meetingId) {
-  if (meetingId) {
+  try {
     clearGroupChatMsg(meetingId);
-    return GroupChat.remove({ meetingId }, Logger.info(`Cleared GroupChat (${meetingId})`));
-  }
+    const numberAffected = GroupChat.remove({ meetingId });
 
-  clearGroupChatMsg();
-  return GroupChat.remove({}, Logger.info('Cleared GroupChat (all)'));
+    if (numberAffected) {
+      Logger.info(`Cleared GroupChat (${meetingId})`);
+    }
+  } catch (err) {
+    Logger.error(`Error on clearing GroupChat (${meetingId}). ${err}`);
+  }
 }

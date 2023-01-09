@@ -9,7 +9,11 @@ const SUPPORTED_DOCUMENT_KEY = 'SUPPORTED_DOCUMENT';
 const UNSUPPORTED_DOCUMENT_KEY = 'UNSUPPORTED_DOCUMENT';
 const PAGE_COUNT_FAILED_KEY = 'PAGE_COUNT_FAILED';
 const PAGE_COUNT_EXCEEDED_KEY = 'PAGE_COUNT_EXCEEDED';
+const PDF_HAS_BIG_PAGE_KEY = 'PDF_HAS_BIG_PAGE';
 const GENERATED_SLIDE_KEY = 'GENERATED_SLIDE';
+const FILE_TOO_LARGE_KEY = 'FILE_TOO_LARGE';
+const CONVERSION_TIMEOUT_KEY = "CONVERSION_TIMEOUT";
+const IVALID_MIME_TYPE_KEY = "IVALID_MIME_TYPE";
 // const GENERATING_THUMBNAIL_KEY = 'GENERATING_THUMBNAIL';
 // const GENERATED_THUMBNAIL_KEY = 'GENERATED_THUMBNAIL';
 // const GENERATING_TEXTFILES_KEY = 'GENERATING_TEXTFILES';
@@ -21,13 +25,15 @@ const GENERATED_SLIDE_KEY = 'GENERATED_SLIDE';
 export default function handlePresentationConversionUpdate({ body }, meetingId) {
   check(body, Object);
 
-  const presentationId = body.presentationId;
-  const status = body.messageKey;
-  const presentationName = body.presName;
+  const {
+    presentationId, podId, messageKey: status, presName: presentationName, temporaryPresentationId,
+  } = body;
 
   check(meetingId, String);
-  check(presentationId, String);
+  check(presentationId, Match.Maybe(String));
+  check(podId, String);
   check(status, String);
+  check(temporaryPresentationId, Match.Maybe(String));
 
   const statusModifier = {
     'conversion.status': status,
@@ -41,17 +47,30 @@ export default function handlePresentationConversionUpdate({ body }, meetingId) 
       statusModifier.name = presentationName;
       break;
 
+    case FILE_TOO_LARGE_KEY:
+      statusModifier['conversion.maxFileSize'] = body.maxFileSize;
     case UNSUPPORTED_DOCUMENT_KEY:
     case OFFICE_DOC_CONVERSION_FAILED_KEY:
+    case IVALID_MIME_TYPE_KEY:
+      statusModifier['conversion.error'] = true;
+      statusModifier['conversion.fileMime'] = body.fileMime;
+      statusModifier['conversion.fileExtension'] = body.fileExtension;
     case OFFICE_DOC_CONVERSION_INVALID_KEY:
     case PAGE_COUNT_FAILED_KEY:
     case PAGE_COUNT_EXCEEDED_KEY:
-      statusModifier.id = presentationId;
-      statusModifier.name = presentationName;
+      statusModifier['conversion.maxNumberPages'] = body.maxNumberPages;
+    case PDF_HAS_BIG_PAGE_KEY:
+      statusModifier.id = presentationId ?? body.presentationToken;
+      statusModifier.name = presentationName ?? body.presentationName;
       statusModifier['conversion.error'] = true;
-      statusModifier['conversion.done'] = true;
+      statusModifier['conversion.bigPageSize'] = body.bigPageSize;
       break;
-
+    case CONVERSION_TIMEOUT_KEY:
+      statusModifier['conversion.error'] = true;
+      statusModifier['conversion.maxNumberOfAttempts'] = body.maxNumberOfAttempts;
+      statusModifier['conversion.numberPageError'] = body.page;
+      
+      break;
     case GENERATED_SLIDE_KEY:
       statusModifier['conversion.pagesCompleted'] = body.pagesCompleted;
       statusModifier['conversion.numPages'] = body.numberOfPages;
@@ -63,25 +82,46 @@ export default function handlePresentationConversionUpdate({ body }, meetingId) 
 
   const selector = {
     meetingId,
-    id: presentationId,
+    podId,
+    id: presentationId ?? body.presentationToken,
   };
 
-  const modifier = {
-    $set: Object.assign({ meetingId }, statusModifier),
-  };
+  let modifier
+  if (temporaryPresentationId){
+    modifier = {
+      $set: Object.assign({ meetingId, podId, renderedInToast: false, temporaryPresentationId, }, statusModifier),
+    };
+  } else {
+    modifier = {
+      $set: Object.assign({ meetingId, renderedInToast: false, podId }, statusModifier),
+    };
+  }
 
-  const cb = (err, numChanged) => {
-    if (err) {
-      return Logger.error(`Updating conversion status presentation to collection: ${err}`);
+
+  try {
+    const isPresentationPersisted = Presentations.find(selector).fetch().some((item) => {
+      if (item.temporaryPresentationId && temporaryPresentationId){
+        return item.temporaryPresentationId === temporaryPresentationId;
+      } else{
+        return item.id === presentationId;
+      } 
+    });
+    let insertedID;
+    if (!isPresentationPersisted) {
+      const { insertedId } = Presentations.upsert(selector, modifier);
+      insertedID = insertedId;
+    } else {
+      selector['conversion.error'] = false;
+      const { insertedId } = Presentations.update(selector, modifier);
+      insertedID = insertedId;
     }
 
-    const { insertedId } = numChanged;
-    if (insertedId) {
-      return Logger.info(`Updated presentation conversion status=${status} id=${presentationId} meeting=${meetingId}`);
+    if (insertedID) {
+      Logger.info(`Updated presentation conversion status=${status} id=${presentationId} meeting=${meetingId}`);
+    } else {
+      Logger.debug('Upserted presentation conversion', { status, presentationId, meetingId });
     }
-
-    return Logger.info(`Upserted presentation conversion status=${status} id=${presentationId} meeting=${meetingId}`);
-  };
-
-  return Presentations.upsert(selector, modifier, cb);
+  } catch (err) {
+    Logger.error(`Updating conversion status presentation to collection: ${err}`);
+  }
 }

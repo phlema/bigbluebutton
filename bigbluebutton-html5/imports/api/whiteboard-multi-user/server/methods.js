@@ -1,7 +1,12 @@
 import { Meteor } from 'meteor/meteor';
-import mapToAcl from '/imports/startup/mapToAcl';
-import changeWhiteboardAccess from './methods/changeWhiteboardAccess';
+import addGlobalAccess from './methods/addGlobalAccess';
+import addIndividualAccess from './methods/addIndividualAccess';
+import removeGlobalAccess from './methods/removeGlobalAccess';
+import removeIndividualAccess from './methods/removeIndividualAccess';
 
-Meteor.methods(mapToAcl(['methods.modifyWhiteboardAccess'], {
-  changeWhiteboardAccess,
-}));
+Meteor.methods({
+  addGlobalAccess,
+  addIndividualAccess,
+  removeGlobalAccess,
+  removeIndividualAccess,
+});

@@ -1,18 +1,9 @@
 import Users from '/imports/api/users';
-import Captions from '/imports/api/captions';
 import Auth from '/imports/ui/services/auth';
-import _ from 'lodash';
 import Settings from '/imports/ui/services/settings';
-
-const getClosedCaptionLocales = () => {
-  // list of unique locales in the Captions Collection
-  const locales = _.uniq(Captions.find({}, {
-    sort: { locale: 1 },
-    fields: { locale: true },
-  }).fetch().map(obj => obj.locale), true);
-
-  return locales;
-};
+import {notify} from '/imports/ui/services/notification';
+import GuestService from '/imports/ui/components/waiting-users/service';
+import Intl from '/imports/ui/services/locale';
 
 const getUserRoles = () => {
   const user = Users.findOne({
@@ -22,16 +13,49 @@ const getUserRoles = () => {
   return user.role;
 };
 
-const updateSettings = (obj) => {
-  Object.keys(obj).forEach(k => (Settings[k] = obj[k]));
-  Settings.save();
+const isPresenter = () => {
+  const user = Users.findOne({
+    userId: Auth.userID,
+  });
+
+  return user.presenter;
 };
 
-const getAvailableLocales = () => fetch('/html5client/locales').then(locales => locales.json());
+const showGuestNotification = () => {
+  const guestPolicy = GuestService.getGuestPolicy();
+
+  // Guest notification only makes sense when guest
+  // entrance is being controlled by moderators
+  return guestPolicy === 'ASK_MODERATOR';
+};
+
+const isKeepPushingLayoutEnabled = () => Meteor.settings.public.layout.showPushLayoutToggle;
+
+const updateSettings = (obj, msgDescriptor) => {
+  Object.keys(obj).forEach(k => (Settings[k] = obj[k]));
+  Settings.save();
+
+  if (msgDescriptor) {
+    // prevents React state update on unmounted component
+    setTimeout(() => {
+      Intl.formatMessage(msgDescriptor).then((txt) => {
+        notify(
+          txt,
+          'info',
+          'settings',
+        );
+      });
+    }, 0);
+  }
+};
+
+const getAvailableLocales = () => fetch('./locale-list').then(locales => locales.json());
 
 export {
-  getClosedCaptionLocales,
   getUserRoles,
+  isPresenter,
+  showGuestNotification,
   updateSettings,
+  isKeepPushingLayoutEnabled,
   getAvailableLocales,
 };

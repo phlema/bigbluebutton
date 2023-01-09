@@ -1,7 +1,25 @@
 import React, { Component } from 'react';
 import PropTypes from 'prop-types';
 import _ from 'lodash';
-import { styles } from './styles';
+import { defineMessages, injectIntl } from 'react-intl';
+import Styled from './styles';
+
+const intlMessages = defineMessages({
+  legendTitle: {
+    id: 'app.meeting-ended.rating.legendLabel',
+    description: 'label for star feedback legend',
+  },
+  starLabel: {
+    id: 'app.meeting-ended.rating.starLabel',
+    description: 'label for feedback stars',
+  },
+});
+
+const propTypes = {
+  intl: PropTypes.object.isRequired,
+  onRate: PropTypes.func.isRequired,
+  total: PropTypes.string.isRequired,
+};
 
 class Rating extends Component {
   constructor(props) {
@@ -15,23 +33,41 @@ class Rating extends Component {
   }
 
   clickStar(e) {
-    this.props.onRate(e);
+    const { onRate } = this.props;
+    onRate(e);
   }
 
   renderStars(num) {
-    return (
-      <div className={styles.starRating}>
-        <fieldset>
+    const { intl } = this.props;
 
+    return (
+      <Styled.StarRating>
+        <fieldset>
+          <Styled.Legend>{intl.formatMessage(intlMessages.legendTitle)}</Styled.Legend>
           {
-              _.range(num)
-                .map(i =>
-            [(<input type="radio" id={`star ${i + 1}`} name="rating" value={i + 1} key={_.uniqueId('star-')} onChange={() => this.clickStar(i + 1)} />),
-             (<label htmlFor={`star ${i + 1}`} title={`star ${i + 1}`} key={_.uniqueId('star-')}>star {i + 1}</label>),
-           ]).reverse()
+            _.range(num)
+              .map(i => [
+                (
+                  <input
+                    type="radio"
+                    id={`${i + 1}star`}
+                    name="rating"
+                    value={i + 1}
+                    key={_.uniqueId('star-')}
+                    onChange={() => this.clickStar(i + 1)}
+                  />
+                ),
+                (
+                  <label
+                    htmlFor={`${i + 1}star`}
+                    key={_.uniqueId('star-')}
+                    aria-label={`${i + 1} ${intl.formatMessage(intlMessages.starLabel)}`}
+                  />
+                ),
+              ]).reverse()
           }
         </fieldset>
-      </div>
+      </Styled.StarRating>
     );
   }
 
@@ -40,7 +76,7 @@ class Rating extends Component {
       total,
     } = this.props;
     return (
-      <div className={styles.father}>
+      <div>
         {
           this.renderStars(total)
         }
@@ -49,4 +85,6 @@ class Rating extends Component {
   }
 }
 
-export default Rating;
+export default injectIntl(Rating);
+
+Rating.propTypes = propTypes;

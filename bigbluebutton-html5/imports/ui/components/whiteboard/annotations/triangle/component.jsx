@@ -1,33 +1,27 @@
 import React, { Component } from 'react';
 import PropTypes from 'prop-types';
-import AnnotationHelpers from '../helpers';
+import { getFormattedColor, getStrokeWidth, denormalizeCoord } from '../helpers';
 
 export default class TriangleDrawComponent extends Component {
-
   shouldComponentUpdate(nextProps) {
-    return this.props.version !== nextProps.version;
+    const { version } = this.props;
+    return version !== nextProps.version;
   }
 
   getCoordinates() {
-    const { slideWidth, slideHeight } = this.props;
-    const { points } = this.props.annotation;
+    const { slideWidth, slideHeight, annotation } = this.props;
+    const { points } = annotation;
 
-    // points[0] and points[1] are x and y coordinates of the top left corner of the annotation
-    // points[2] and points[3] are x and y coordinates of the bottom right corner of the annotation
-    const xBottomLeft = points[0];
-    const yBottomLeft = points[3];
-    const xBottomRight = points[2];
-    const yBottomRight = points[3];
-    const xTop = ((xBottomRight - xBottomLeft) / 2) + xBottomLeft;
-    const yTop = points[1];
+    const xApex = ((points[2] - points[0]) / 2) + points[0];
+    const yApex = points[1];
 
-    const path = `M${(xTop / 100) * slideWidth
-        },${(yTop / 100) * slideHeight
-        },${(xBottomLeft / 100) * slideWidth
-        },${(yBottomLeft / 100) * slideHeight
-        },${(xBottomRight / 100) * slideWidth
-        },${(yBottomRight / 100) * slideHeight
-        }Z`;
+    const path = `M${denormalizeCoord(xApex, slideWidth)
+    },${denormalizeCoord(yApex, slideHeight)
+    },${denormalizeCoord(points[0], slideWidth)
+    },${denormalizeCoord(points[3], slideHeight)
+    },${denormalizeCoord(points[2], slideWidth)
+    },${denormalizeCoord(points[3], slideHeight)
+    }Z`;
 
     return path;
   }
@@ -35,14 +29,16 @@ export default class TriangleDrawComponent extends Component {
   render() {
     const path = this.getCoordinates();
     const { annotation, slideWidth } = this.props;
+    const { fill } = annotation;
     return (
       <path
         style={{ WebkitTapHighlightColor: 'rgba(0, 0, 0, 0)' }}
-        fill="none"
-        stroke={AnnotationHelpers.getFormattedColor(annotation.color)}
+        fill={ fill ? getFormattedColor(annotation.color) : "none" }
+        stroke={getFormattedColor(annotation.color)}
         d={path}
-        strokeWidth={AnnotationHelpers.getStrokeWidth(annotation.thickness, slideWidth)}
+        strokeWidth={getStrokeWidth(annotation.thickness, slideWidth)}
         strokeLinejoin="miter"
+        data-test="drawnTriangle"
       />
     );
   }
@@ -56,6 +52,7 @@ TriangleDrawComponent.propTypes = {
     points: PropTypes.arrayOf(PropTypes.number).isRequired,
     color: PropTypes.number.isRequired,
     thickness: PropTypes.number.isRequired,
+    fill: PropTypes.bool.isRequired,
   }).isRequired,
   // Defines the width of the slide (svg coordinate system), which needed in calculations
   slideWidth: PropTypes.number.isRequired,

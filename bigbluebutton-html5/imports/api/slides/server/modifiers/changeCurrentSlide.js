@@ -1,15 +1,17 @@
 import { check } from 'meteor/check';
-import Slides from '/imports/api/slides';
+import { Slides } from '/imports/api/slides';
 import Logger from '/imports/startup/server/logger';
 
-export default function changeCurrentSlide(meetingId, presentationId, slideId) {
+export default function changeCurrentSlide(meetingId, podId, presentationId, slideId) {
   check(meetingId, String);
   check(presentationId, String);
   check(slideId, String);
+  check(podId, String);
 
   const oldCurrent = {
     selector: {
       meetingId,
+      podId,
       presentationId,
       current: true,
     },
@@ -18,16 +20,18 @@ export default function changeCurrentSlide(meetingId, presentationId, slideId) {
     },
     callback: (err) => {
       if (err) {
-        return Logger.error(`Unsetting the current slide: ${err}`);
+        Logger.error(`Unsetting the current slide: ${err}`);
+        return;
       }
 
-      return Logger.info('Unsetted the current slide');
+      Logger.info('Unsetted the current slide');
     },
   };
 
   const newCurrent = {
     selector: {
       meetingId,
+      podId,
       presentationId,
       id: slideId,
     },
@@ -36,10 +40,11 @@ export default function changeCurrentSlide(meetingId, presentationId, slideId) {
     },
     callback: (err) => {
       if (err) {
-        return Logger.error(`Setting as current slide id=${slideId}: ${err}`);
+        Logger.error(`Setting as current slide id=${slideId}: ${err}`);
+        return;
       }
 
-      return Logger.info(`Setted as current slide id=${slideId}`);
+      Logger.info(`Setted as current slide id=${slideId}`);
     },
   };
 

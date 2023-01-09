@@ -1,9 +1,13 @@
 import React from 'react';
-import { injectIntl, intlShape, defineMessages } from 'react-intl';
-import { styles } from './styles';
+import { injectIntl, defineMessages } from 'react-intl';
+import PropTypes from 'prop-types';
+import Styled from './styles';
+import browserInfo from '/imports/utils/browserInfo';
+import Settings from '/imports/ui/services/settings';
 
 const propTypes = {
-  intl: intlShape.isRequired,
+  intl: PropTypes.object.isRequired,
+  closeModal: PropTypes.func.isRequired,
 };
 
 const intlMessages = defineMessages({
@@ -17,15 +21,26 @@ const intlMessages = defineMessages({
   },
 });
 
-const PermissionsOverlay = ({ intl }) => (
-  <div className={styles.overlay}>
-    <div className={styles.hint}>
+const { isChrome, isFirefox, isSafari } = browserInfo;
+const { animations } = Settings.application;
+
+const PermissionsOverlay = ({ intl, closeModal }) => (
+  <Styled.PermissionsOverlayModal
+    overlayClassName={"permissionsOverlay"}
+    onRequestClose={closeModal}
+    hideBorder
+    isFirefox={isFirefox}
+    isChrome={isChrome}
+    isSafari={isSafari}
+    animations={animations}
+  >
+    <Styled.Content>
       { intl.formatMessage(intlMessages.title) }
       <small>
         { intl.formatMessage(intlMessages.hint) }
       </small>
-    </div>
-  </div>
+    </Styled.Content>
+  </Styled.PermissionsOverlayModal>
 );
 
 PermissionsOverlay.propTypes = propTypes;

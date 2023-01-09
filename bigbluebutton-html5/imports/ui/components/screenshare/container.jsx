@@ -1,30 +1,57 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { withTracker } from 'meteor/react-meteor-data';
-import Users from '/imports/api/users/';
 import Auth from '/imports/ui/services/auth';
-import mapUser from '/imports/ui/services/user/mapUser';
-import { isVideoBroadcasting, presenterScreenshareHasEnded, unshareScreen,
-  presenterScreenshareHasStarted } from './service';
+import {
+  isVideoBroadcasting,
+  isGloballyBroadcasting,
+} from './service';
 import ScreenshareComponent from './component';
+import { layoutSelect, layoutSelectOutput, layoutDispatch } from '../layout/context';
+import getFromUserSettings from '/imports/ui/services/users-settings';
+import { UsersContext } from '/imports/ui/components/components-data/users-context/context';
+import { shouldEnableVolumeControl } from './service';
+import MediaService from '/imports/ui/components/media/service';
 
-class ScreenshareContainer extends React.Component {
-  render() {
-    if (this.props.isVideoBroadcasting()) {
-      return <ScreenshareComponent {...this.props} />;
-    }
+const ScreenshareContainer = (props) => {
+  const screenShare = layoutSelectOutput((i) => i.screenShare);
+  const fullscreen = layoutSelect((i) => i.fullscreen);
+  const layoutContextDispatch = layoutDispatch();
 
-    return null;
+  const { element } = fullscreen;
+  const fullscreenElementId = 'Screenshare';
+  const fullscreenContext = (element === fullscreenElementId);
+
+  const usingUsersContext = useContext(UsersContext);
+  const { users } = usingUsersContext;
+  const currentUser = users[Auth.meetingID][Auth.userID];
+  const isPresenter = currentUser.presenter;
+
+  if (isVideoBroadcasting()) {
+    return (
+      <ScreenshareComponent
+        {
+        ...{
+          layoutContextDispatch,
+          ...props,
+          ...screenShare,
+          fullscreenContext,
+          fullscreenElementId,
+          isPresenter,
+        }
+        }
+      />
+    );
   }
-}
+  return null;
+};
+
+const LAYOUT_CONFIG = Meteor.settings.public.layout;
 
 export default withTracker(() => {
-  const user = Users.findOne({ userId: Auth.userID });
-  const MappedUser = mapUser(user);
   return {
-    isPresenter: MappedUser.isPresenter,
-    unshareScreen,
-    isVideoBroadcasting,
-    presenterScreenshareHasStarted,
-    presenterScreenshareHasEnded,
+    isGloballyBroadcasting: isGloballyBroadcasting(),
+    toggleSwapLayout: MediaService.toggleSwapLayout,
+    hidePresentation: getFromUserSettings('bbb_hide_presentation', LAYOUT_CONFIG.hidePresentation),
+    enableVolumeControl: shouldEnableVolumeControl(),
   };
 })(ScreenshareContainer);

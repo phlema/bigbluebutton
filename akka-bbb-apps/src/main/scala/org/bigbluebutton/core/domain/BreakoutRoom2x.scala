@@ -6,13 +6,17 @@ case class BreakoutRoom2x(
     name:          String,
     parentId:      String,
     sequence:      Int,
+    shortName:     String,
+    isDefaultName: Boolean,
     freeJoin:      Boolean,
     voiceConf:     String,
     assignedUsers: Vector[String],
     users:         Vector[BreakoutUser],
     voiceUsers:    Vector[BreakoutVoiceUser],
     startedOn:     Option[Long],
-    started:       Boolean
+    started:       Boolean,
+    captureNotes:  Boolean,
+    captureSlides: Boolean,
 ) {
 
 }

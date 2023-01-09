@@ -1,7 +1,16 @@
 import { Meteor } from 'meteor/meteor';
-import mapToAcl from '/imports/startup/mapToAcl';
 import sendGroupChatMsg from './methods/sendGroupChatMsg';
+import clearPublicChatHistory from './methods/clearPublicChatHistory';
+import startUserTyping from './methods/startUserTyping';
+import stopUserTyping from './methods/stopUserTyping';
+import chatMessageBeforeJoinCounter from './methods/chatMessageBeforeJoinCounter';
+import fetchMessagePerPage from './methods/fetchMessagePerPage';
 
-Meteor.methods(mapToAcl(['methods.sendGroupChatMsg'], {
+Meteor.methods({
+  fetchMessagePerPage,
+  chatMessageBeforeJoinCounter,
   sendGroupChatMsg,
-}));
+  clearPublicChatHistory,
+  startUserTyping,
+  stopUserTyping,
+});

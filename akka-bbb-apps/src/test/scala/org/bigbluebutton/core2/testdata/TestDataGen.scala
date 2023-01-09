@@ -14,7 +14,7 @@ object TestDataGen {
       RandomStringGenerator.randomAlphanumericString(10) + ".png"
 
     val ru = RegisteredUsers.create(userId = id, extId, name, role,
-      authToken, avatarURL, guest, authed, GuestStatus.ALLOW)
+      authToken, avatarURL, guest, authed, GuestStatus.ALLOW, false)
 
     RegisteredUsers.add(users, ru)
     ru
@@ -35,20 +35,17 @@ object TestDataGen {
       callerNum = name, muted, talking, listenOnly)
   }
 
-  def createFakeWebcamStreamFor(userId: String, viewers: Set[String]): WebcamStream = {
+  def createFakeWebcamStreamFor(userId: String, subscribers: Set[String]): WebcamStream = {
     val streamId = RandomStringGenerator.randomAlphanumericString(10)
-    val url = "https://www." + RandomStringGenerator.randomAlphanumericString(32) + ".com/" + streamId
-    val attributes = collection.immutable.HashMap("height" -> "600", "width" -> "800", "codec" -> "h264")
-    val media = MediaStream(streamId, url: String, userId: String, attributes, viewers)
-    WebcamStream(streamId, stream = media)
+    WebcamStream(streamId, userId, subscribers)
   }
 
   def createUserFor(liveMeeting: LiveMeeting, regUser: RegisteredUser, presenter: Boolean): UserState = {
     val u = UserState(intId = regUser.id, extId = regUser.externId, name = regUser.name, role = regUser.role,
       guest = regUser.guest, authed = regUser.authed, guestStatus = regUser.guestStatus,
-      emoji = "none", locked = false, presenter, avatar = regUser.avatarURL)
+      emoji = "none", locked = false, presenter = false, avatar = regUser.avatarURL, clientType = "unknown",
+      userLeftFlag = UserLeftFlag(false, 0))
     Users2x.add(liveMeeting.users2x, u)
-
     u
   }
 }

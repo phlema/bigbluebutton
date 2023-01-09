@@ -23,7 +23,7 @@ performance_start = Time.now
 
 require '../../core/lib/recordandplayback'
 require 'rubygems'
-require 'trollop'
+require 'optimist'
 require 'yaml'
 require 'builder'
 require 'fastimage' # require fastimage to get the image size of the slides (gem install fastimage)
@@ -33,7 +33,7 @@ require 'fastimage' # require fastimage to get the image size of the slides (gem
 bbb_props = YAML::load(File.open('../../core/scripts/bigbluebutton.yml'))
 podcast_props = YAML::load(File.open('podcast.yml'))
 
-opts = Trollop::options do
+opts = Optimist::options do
   opt :meeting_id, "Meeting id to archive", :default => '58f4a6b3-cd07-444d-8564-59116cb53974', :type => String
 end
 
@@ -70,7 +70,8 @@ begin
       BigBlueButton.logger.info("copying: #{process_dir}/audio.ogg to -> #{target_dir}")
       FileUtils.cp("#{process_dir}/audio.ogg", target_dir)
 
-      recording_time = BigBlueButton::Events.get_recording_length("#{raw_archive_dir}/events.xml")
+      @doc = Nokogiri::XML(File.open("#{raw_archive_dir}/events.xml"))
+      recording_time = BigBlueButton::Events.get_recording_length(@doc)
 
       BigBlueButton.logger.info("Creating metadata.xml")
 

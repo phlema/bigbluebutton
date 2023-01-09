@@ -9,11 +9,11 @@ trait RxJsonMsgDeserializer {
 
   object JsonDeserializer extends Deserializer
 
-  def routeDeskshareStartRtmpBroadcastVoiceConfMsg(envelope: BbbCoreEnvelope, jsonNode: JsonNode): Unit = {
-    def deserialize(jsonNode: JsonNode): Option[ScreenshareStartRtmpBroadcastVoiceConfMsg] = {
-      val (result, error) = JsonDeserializer.toBbbCommonMsg[ScreenshareStartRtmpBroadcastVoiceConfMsg](jsonNode)
+  def routeGetUsersStatusToVoiceConfSysMsg(envelope: BbbCoreEnvelope, jsonNode: JsonNode): Unit = {
+    def deserialize(jsonNode: JsonNode): Option[GetUsersStatusToVoiceConfSysMsg] = {
+      val (result, error) = JsonDeserializer.toBbbCommonMsg[GetUsersStatusToVoiceConfSysMsg](jsonNode)
       result match {
-        case Some(msg) => Some(msg.asInstanceOf[ScreenshareStartRtmpBroadcastVoiceConfMsg])
+        case Some(msg) => Some(msg.asInstanceOf[GetUsersStatusToVoiceConfSysMsg])
         case None =>
           log.error("Failed to deserialize message: error: {} \n msg: {}", error, jsonNode)
           None
@@ -23,15 +23,15 @@ trait RxJsonMsgDeserializer {
     for {
       m <- deserialize(jsonNode)
     } yield {
-      fsApp.deskShareBroadcastRTMP(m.body.screenshareConf, m.body.url, m.body.timestamp, true)
+      fsApp.getUsersStatus(m.body.voiceConf, m.body.meetingId)
     }
   }
 
-  def routeDeskshareStopRtmpBroadcastVoiceConfMsg(envelope: BbbCoreEnvelope, jsonNode: JsonNode): Unit = {
-    def deserialize(jsonNode: JsonNode): Option[ScreenshareStopRtmpBroadcastVoiceConfMsg] = {
-      val (result, error) = JsonDeserializer.toBbbCommonMsg[ScreenshareStopRtmpBroadcastVoiceConfMsg](jsonNode)
+  def routeCheckRunningAndRecordingToVoiceConfSysMsg(envelope: BbbCoreEnvelope, jsonNode: JsonNode): Unit = {
+    def deserialize(jsonNode: JsonNode): Option[CheckRunningAndRecordingToVoiceConfSysMsg] = {
+      val (result, error) = JsonDeserializer.toBbbCommonMsg[CheckRunningAndRecordingToVoiceConfSysMsg](jsonNode)
       result match {
-        case Some(msg) => Some(msg.asInstanceOf[ScreenshareStopRtmpBroadcastVoiceConfMsg])
+        case Some(msg) => Some(msg.asInstanceOf[CheckRunningAndRecordingToVoiceConfSysMsg])
         case None =>
           log.error("Failed to deserialize message: error: {} \n msg: {}", error, jsonNode)
           None
@@ -41,7 +41,7 @@ trait RxJsonMsgDeserializer {
     for {
       m <- deserialize(jsonNode)
     } yield {
-      fsApp.deskShareBroadcastRTMP(m.body.screenshareConf, m.body.url, m.body.timestamp, false)
+      fsApp.checkRunningAndRecording(m.body.voiceConf, m.body.meetingId)
     }
   }
 
@@ -114,6 +114,78 @@ trait RxJsonMsgDeserializer {
       m <- deserialize(jsonNode)
     } yield {
       fsApp.muteUser(m.body.voiceConf, m.body.voiceUserId, m.body.mute)
+    }
+  }
+
+  def routeDeafUserInVoiceConfMsg(envelope: BbbCoreEnvelope, jsonNode: JsonNode): Unit = {
+    def deserialize(jsonNode: JsonNode): Option[DeafUserInVoiceConfSysMsg] = {
+      val (result, error) = JsonDeserializer.toBbbCommonMsg[DeafUserInVoiceConfSysMsg](jsonNode)
+      result match {
+        case Some(msg) => Some(msg.asInstanceOf[DeafUserInVoiceConfSysMsg])
+        case None =>
+          log.error("Failed to deserialize message: error: {} \n msg: {}", error, jsonNode)
+          None
+      }
+    }
+
+    for {
+      m <- deserialize(jsonNode)
+    } yield {
+      fsApp.deafUser(m.body.voiceConf, m.body.voiceUserId, m.body.deaf)
+    }
+  }
+
+  def routeHoldUserInVoiceConfMsg(envelope: BbbCoreEnvelope, jsonNode: JsonNode): Unit = {
+    def deserialize(jsonNode: JsonNode): Option[HoldUserInVoiceConfSysMsg] = {
+      val (result, error) = JsonDeserializer.toBbbCommonMsg[HoldUserInVoiceConfSysMsg](jsonNode)
+      result match {
+        case Some(msg) => Some(msg.asInstanceOf[HoldUserInVoiceConfSysMsg])
+        case None =>
+          log.error("Failed to deserialize message: error: {} \n msg: {}", error, jsonNode)
+          None
+      }
+    }
+
+    for {
+      m <- deserialize(jsonNode)
+    } yield {
+      fsApp.holdUser(m.body.voiceConf, m.body.voiceUserId, m.body.hold)
+    }
+  }
+
+  def routePlaySoundInVoiceConfMsg(envelope: BbbCoreEnvelope, jsonNode: JsonNode): Unit = {
+    def deserialize(jsonNode: JsonNode): Option[PlaySoundInVoiceConfSysMsg] = {
+      val (result, error) = JsonDeserializer.toBbbCommonMsg[PlaySoundInVoiceConfSysMsg](jsonNode)
+      result match {
+        case Some(msg) => Some(msg.asInstanceOf[PlaySoundInVoiceConfSysMsg])
+        case None =>
+          log.error("Failed to deserialize message: error: {} \n msg: {}", error, jsonNode)
+          None
+      }
+    }
+
+    for {
+      m <- deserialize(jsonNode)
+    } yield {
+      fsApp.playSound(m.body.voiceConf, m.body.voiceUserId, m.body.soundPath)
+    }
+  }
+
+  def routeStopSoundInVoiceConfMsg(envelope: BbbCoreEnvelope, jsonNode: JsonNode): Unit = {
+    def deserialize(jsonNode: JsonNode): Option[StopSoundInVoiceConfSysMsg] = {
+      val (result, error) = JsonDeserializer.toBbbCommonMsg[StopSoundInVoiceConfSysMsg](jsonNode)
+      result match {
+        case Some(msg) => Some(msg.asInstanceOf[StopSoundInVoiceConfSysMsg])
+        case None =>
+          log.error("Failed to deserialize message: error: {} \n msg: {}", error, jsonNode)
+          None
+      }
+    }
+
+    for {
+      m <- deserialize(jsonNode)
+    } yield {
+      fsApp.stopSound(m.body.voiceConf, m.body.voiceUserId)
     }
   }
 

@@ -1,13 +1,13 @@
 /**
 * BigBlueButton open source conferencing system - http://www.bigbluebutton.org/
-* 
+*
 * Copyright (c) 2012 BigBlueButton Inc. and by respective authors (see below).
 *
 * This program is free software; you can redistribute it and/or modify it under the
 * terms of the GNU Lesser General Public License as published by the Free Software
 * Foundation; either version 3.0 of the License, or (at your option) any later
 * version.
-* 
+*
 * BigBlueButton is distributed in the hope that it will be useful, but WITHOUT ANY
 * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
 * PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
@@ -24,16 +24,15 @@ import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.SortedSet;
-import java.util.TreeSet;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -43,10 +42,12 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.ResponseHandler;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
+import org.bigbluebutton.api.domain.BreakoutRoomsParams;
+import org.bigbluebutton.api.domain.LockSettingsParams;
 import org.bigbluebutton.api.domain.Meeting;
+import org.bigbluebutton.api.domain.Group;
+import org.bigbluebutton.api.service.ServiceUtils;
 import org.bigbluebutton.api.util.ParamsUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,7 +58,7 @@ public class ParamsProcessorUtil {
     private static final String URLDECODER_SEPARATOR=",";
     private static final String FILTERDECODER_SEPARATOR_ELEMENTS=":";
     private static final String FILTERDECODER_SEPARATOR_OPERATORS="\\|";
-    
+
     private static final String SERVER_URL = "%%SERVERURL%%";
     private static final String DIAL_NUM = "%%DIALNUM%%";
     private static final String CONF_NUM = "%%CONFNUM%%";
@@ -66,6 +67,8 @@ public class ParamsProcessorUtil {
     private String apiVersion;
     private boolean serviceEnabled = false;
     private String securitySalt;
+    private String supportedChecksumAlgorithms;
+    private String checksumHash;
     private int defaultMaxUsers = 20;
     private String defaultWelcomeMessage;
     private String defaultWelcomeMessageFooter;
@@ -75,33 +78,86 @@ public class ParamsProcessorUtil {
     private String defaultLogoutUrl;
     private String defaultServerUrl;
     private int defaultNumDigitsForTelVoice;
-    private String defaultClientUrl;
+    private String defaultHTML5ClientUrl;
     private String defaultGuestWaitURL;
-    private String html5ClientUrl;
-    private Boolean moderatorsJoinViaHTML5Client;
-    private Boolean attendeesJoinViaHTML5Client;
+    private Boolean allowRequestsWithoutSession = false;
+    private Integer defaultHttpSessionTimeout = 14400;
+    private Boolean useDefaultAvatar = false;
     private String defaultAvatarURL;
-    private String defaultConfigURL;
     private String defaultGuestPolicy;
+    private Boolean authenticatedGuest;
+    private String defaultMeetingLayout;
     private int defaultMeetingDuration;
     private boolean disableRecordingDefault;
     private boolean autoStartRecording;
     private boolean allowStartStopRecording;
+    private boolean learningDashboardEnabled = true;
+    private int learningDashboardCleanupDelayInMinutes;
     private boolean webcamsOnlyForModerator;
+    private Integer defaultMeetingCameraCap = 0;
+    private Integer defaultUserCameraCap = 0;
+    private Integer defaultMaxPinnedCameras = 3;
     private boolean defaultMuteOnStart = false;
+    private boolean defaultAllowModsToUnmuteUsers = false;
+    private boolean defaultAllowModsToEjectCameras = false;
+    private String defaultDisabledFeatures;
+    private boolean defaultNotifyRecordingIsOn = false;
+    private boolean defaultKeepEvents = false;
+    private Boolean useDefaultLogo;
+    private String defaultLogoURL;
+    private String defaultPresentationUploadExternalDescription = "";
+    private String defaultPresentationUploadExternalUrl = "";
 
-    private String defaultConfigXML = null;
+		private boolean defaultBreakoutRoomsEnabled = true;
+		private boolean defaultBreakoutRoomsRecord;
+        private boolean defaultBreakoutRoomsCaptureSlides = false;
+        private boolean defaultBreakoutRoomsCaptureNotes = false;
+		private boolean defaultbreakoutRoomsPrivateChatEnabled;
+
+		private boolean defaultLockSettingsDisableCam;
+		private boolean defaultLockSettingsDisableMic;
+		private boolean defaultLockSettingsDisablePrivateChat;
+		private boolean defaultLockSettingsDisablePublicChat;
+		private boolean defaultLockSettingsDisableNotes;
+		private boolean defaultLockSettingsHideUserList;
+		private boolean defaultLockSettingsLockedLayout;
+		private boolean defaultLockSettingsLockOnJoin;
+		private boolean defaultLockSettingsLockOnJoinConfigurable;
+		private boolean defaultLockSettingsHideViewersCursor;
 
     private Long maxPresentationFileUpload = 30000000L; // 30MB
 
-    private Integer maxInactivityTimeoutMinutes = 120;
     private Integer clientLogoutTimerInMinutes = 0;
-	private Integer warnMinutesBeforeMax = 5;
-	private Integer meetingExpireIfNoUserJoinedInMinutes = 5;
-	private Integer meetingExpireWhenLastUserLeftInMinutes = 1;
-	private Integer userInactivityInspectTimerInMinutes = 120;
-	private Integer userInactivityThresholdInMinutes = 30;
+    private Integer defaultMeetingExpireIfNoUserJoinedInMinutes = 5;
+    private Integer defaultMeetingExpireWhenLastUserLeftInMinutes = 1;
+  	private Integer userInactivityInspectTimerInMinutes = 120;
+  	private Integer userInactivityThresholdInMinutes = 30;
     private Integer userActivitySignResponseDelayInMinutes = 5;
+    private Boolean defaultAllowDuplicateExtUserid = true;
+
+    private Integer maxUserConcurrentAccesses = 0;
+  	private Boolean defaultEndWhenNoModerator = false;
+  	private Integer defaultEndWhenNoModeratorDelayInMinutes = 1;
+  	private Integer defaultHtml5InstanceId = 1;
+
+    private String bbbVersion = "";
+    private Boolean allowRevealOfBBBVersion = false;
+
+  	private String formatConfNum(String s) {
+  		if (s.length() > 5) {
+  			/* Reverse conference number.
+  			* Put a whitespace every third char.
+  			* Reverse it again to display it correctly.
+  			* Trim leading whitespaces.
+  			* */
+  			String confNumReversed = new StringBuilder(s).reverse().toString();
+  			String confNumSplit = confNumReversed.replaceAll("(.{3})", "$1 ");
+  			String confNumL = new StringBuilder(confNumSplit).reverse().toString().trim();
+  			return confNumL;
+  		}
+
+  		return s;
+  	}
 
     private String substituteKeywords(String message, String dialNumber, String telVoice, String meetingName) {
         String welcomeMessage = message;
@@ -114,13 +170,21 @@ public class ParamsProcessorUtil {
 
         for (String keyword : keywordList) {
             if (keyword.equals(DIAL_NUM)) {
-                welcomeMessage = welcomeMessage.replaceAll(DIAL_NUM, dialNumber);
+                welcomeMessage = welcomeMessage.replaceAll(
+                        Pattern.quote(DIAL_NUM),
+                        Matcher.quoteReplacement(dialNumber));
             } else if (keyword.equals(CONF_NUM)) {
-                welcomeMessage = welcomeMessage.replaceAll(CONF_NUM, telVoice);
+                welcomeMessage = welcomeMessage.replaceAll(
+                        Pattern.quote(CONF_NUM),
+                        Matcher.quoteReplacement(formatConfNum(telVoice)));
             } else if (keyword.equals(CONF_NAME)) {
-                welcomeMessage = welcomeMessage.replaceAll(CONF_NAME, meetingName);
+                welcomeMessage = welcomeMessage.replaceAll(
+                        Pattern.quote(CONF_NAME),
+                        Matcher.quoteReplacement(ParamsUtil.escapeHTMLTags(meetingName)));
             } else if (keyword.equals(SERVER_URL)) {
-                welcomeMessage = welcomeMessage.replaceAll(SERVER_URL, defaultServerUrl);
+                welcomeMessage = welcomeMessage.replaceAll(
+                        Pattern.quote(SERVER_URL),
+                        Matcher.quoteReplacement(defaultServerUrl));
             }
         }
         return  welcomeMessage;
@@ -147,185 +211,208 @@ public class ParamsProcessorUtil {
         }
     }
 
-	public void updateMeeting(Map<String, Object> updateParams, Meeting existing) {
-		// TODO: Assign new values to meeting.
-/*	    
-	    String meetingName = (String) updateParams.get("name");
-	    if (meetingName != null) {
-	    	existing.setM("name", meetingName);
-	    }
-	    	    
-	    String viewerPass = params.get("attendeePW");
-	    if (! StringUtils.isEmpty(viewerPass) ) {
-	    	newParams.put("attendeePW", viewerPass);
-	    }
-	    
-	    String modPass = params.get("moderatorPW"); 
-	    if (! StringUtils.isEmpty(modPass) ) {
-	    	newParams.put("moderatorPW", modPass);
-	    }
-	    
-	    String telVoice = params.get("voiceBridge");
-	    if (! StringUtils.isEmpty(telVoice) ) {
-	    	newParams.put("voiceBridge", telVoice);
-	    }	    
-	    
-	    String webVoice = params.get("webVoice");
-	    if (! StringUtils.isEmpty(webVoice)) {
-	    	newParams.put("webVoice", webVoice);
-	    }
-	    
-	    String dialNumber = params.get("dialNumber");
-	    if (! StringUtils.isEmpty(dialNumber)) {
-	    	newParams.put("dialNumber", dialNumber);
-	    }	    
-	    
-	    String logoutUrl = params.get("logoutURL"); 
-	    if (! StringUtils.isEmpty(logoutUrl)) {
-	    	newParams.put("logoutURL", logoutUrl);
-	    }	
-	    
-	    String record = params.get("record");
-	    if (! StringUtils.isEmpty(record)) {
-	    	newParams.put("record", record);
-	    }	
-	    
-	    String maxUsers = params.get("maxParticipants");
-	    if (! StringUtils.isEmpty(maxUsers)) {
-	    	newParams.put("maxParticipants", maxUsers);
-	    }	
-	    
-	    String meetingDuration = params.get("duration");
-	    if (! StringUtils.isEmpty(meetingDuration)) {
-	    	newParams.put("duration", meetingDuration);
-	    }
-	    
-	    String welcomeMessage = params.get("welcome");
-	    if (! StringUtils.isEmpty(welcomeMessage)) {
-	    	newParams.put("welcome", welcomeMessage);
-	    }
-	    	    	    
-	    // Collect metadata for this meeting that the third-party app wants to store if meeting is recorded.
-	    Map<String, String> meetingInfo = new HashMap<String, String>();
-	    for (String key: params.keySet()) {
-	    	if (key.contains("meta")){
-	    		String[] meta = key.split("_");
-			    if(meta.length == 2){
-			    	meetingInfo.put(meta[1], params.get(key));
-			    }
-			}   
-	    }
-
-	    if (! meetingInfo.isEmpty()) {
-	    	newParams.put("metadata", meetingInfo);
-	    }		
-*/
-	}
-	
 	public Map<String, Object> processUpdateCreateParams(Map<String, String> params) {
 		Map<String, Object> newParams = new HashMap<>();
-		    
-	    // Do we have a meeting name? If not, complain.
-	    String meetingName = params.get(ApiParams.NAME);
-	    if (! StringUtils.isEmpty(meetingName) ) {
-	    	newParams.put(ApiParams.NAME, meetingName);
-	    }
-	    	    
-	    String viewerPass = params.get(ApiParams.ATTENDEE_PW);
-	    if (! StringUtils.isEmpty(viewerPass) ) {
-	    	newParams.put(ApiParams.ATTENDEE_PW, viewerPass);
-	    }
-	    
-	    String modPass = params.get(ApiParams.MODERATOR_PW); 
-	    if (! StringUtils.isEmpty(modPass) ) {
-	    	newParams.put(ApiParams.MODERATOR_PW, modPass);
-	    }
-	    
-	    String telVoice = params.get(ApiParams.VOICE_BRIDGE);
-	    if (! StringUtils.isEmpty(telVoice) ) {
-	    	newParams.put(ApiParams.VOICE_BRIDGE, telVoice);
-	    }	    
-	    
-	    String webVoice = params.get(ApiParams.WEB_VOICE);
-	    if (! StringUtils.isEmpty(webVoice)) {
-	    	newParams.put(ApiParams.WEB_VOICE, webVoice);
-	    }
-	    
-	    String dialNumber = params.get(ApiParams.DIAL_NUMBER);
-	    if (! StringUtils.isEmpty(dialNumber)) {
-	    	newParams.put(ApiParams.DIAL_NUMBER, dialNumber);
-	    }	    
-	    
-	    String logoutUrl = params.get(ApiParams.LOGOUT_URL); 
-	    if (! StringUtils.isEmpty(logoutUrl)) {
-	    	newParams.put(ApiParams.LOGOUT_URL, logoutUrl);
-	    }	
-	    
-	    String record = params.get(ApiParams.RECORD);
-	    if (! StringUtils.isEmpty(record)) {
-	    	newParams.put(ApiParams.RECORD, record);
-	    }	
-	    
-	    String maxUsers = params.get(ApiParams.MAX_PARTICIPANTS);
-	    if (! StringUtils.isEmpty(maxUsers)) {
-	    	newParams.put(ApiParams.MAX_PARTICIPANTS, maxUsers);
-	    }	
-	    
-	    String meetingDuration = params.get(ApiParams.DURATION);
-	    if (! StringUtils.isEmpty(meetingDuration)) {
-	    	newParams.put(ApiParams.DURATION, meetingDuration);
-	    }
-	    
-	    String welcomeMessage = params.get(ApiParams.WELCOME);
-	    if (! StringUtils.isEmpty(welcomeMessage)) {
-	    	newParams.put(ApiParams.WELCOME, welcomeMessage);
-	    }
-	    	    	    
-	    // Collect metadata for this meeting that the third-party app wants to store if meeting is recorded.
+
+        String[] createParams = { ApiParams.NAME, ApiParams.ATTENDEE_PW, ApiParams.MODERATOR_PW, ApiParams.VOICE_BRIDGE,
+                ApiParams.WEB_VOICE, ApiParams.DIAL_NUMBER, ApiParams.LOGOUT_URL, ApiParams.RECORD,
+                ApiParams.MAX_PARTICIPANTS, ApiParams.DURATION, ApiParams.WELCOME };
+
+        for (String paramName : createParams) {
+            String parameter = params.get(paramName);
+            if (!StringUtils.isEmpty(parameter)) {
+                newParams.put(paramName, parameter);
+            }
+        }
+
+	    // Collect metadata for this meeting that the third-party application wants to store if meeting is recorded.
 	    Map<String, String> meetingInfo = new HashMap<>();
-	    for (String key: params.keySet()) {
-	    	if (key.contains(ApiParams.META)){
-	    		String[] meta = key.split("_");
+	    for (Map.Entry<String, String> entry : params.entrySet()) {
+	    	if (entry.getKey().contains(ApiParams.META)){
+	    		String[] meta = entry.getKey().split("_");
 			    if(meta.length == 2){
-			    	meetingInfo.put(meta[1], params.get(key));
+			    	meetingInfo.put(meta[1], entry.getValue());
 			    }
-			}   
+			}
 	    }
 
         if (!meetingInfo.isEmpty()) {
             newParams.put("metadata", meetingInfo);
         }
-	    
+
 	    return newParams;
 	}
-	
-	private static final Pattern META_VAR_PATTERN = Pattern.compile("meta_[a-zA-Z][a-zA-Z0-9-]*$");	
+
+	private static final Pattern META_VAR_PATTERN = Pattern.compile("meta_[a-zA-Z][a-zA-Z0-9-]*$");
 	public static Boolean isMetaValid(String param) {
 		Matcher metaMatcher = META_VAR_PATTERN.matcher(param);
     if (metaMatcher.matches()) {
     	return true;
-    }	
+    }
 		return false;
 	}
-	
+
 	public static String removeMetaString(String param) {
 		return StringUtils.removeStart(param, "meta_");
 	}
-	
+
     public static Map<String, String> processMetaParam(Map<String, String> params) {
         Map<String, String> metas = new HashMap<>();
-        for (String key : params.keySet()) {
-            if (isMetaValid(key)) {
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            if (isMetaValid(entry.getKey())) {
                 // Need to lowercase to maintain backward compatibility with
                 // 0.81
-                String metaName = removeMetaString(key).toLowerCase();
-                metas.put(metaName, params.get(key));
+                String metaName = removeMetaString(entry.getKey()).toLowerCase();
+                metas.put(metaName, entry.getValue());
             }
         }
 
         return metas;
     }
-	
+
+		private BreakoutRoomsParams processBreakoutRoomsParams(Map<String, String> params) {
+			Boolean breakoutRoomsRecord = defaultBreakoutRoomsRecord;
+			String breakoutRoomsRecordParam = params.get(ApiParams.BREAKOUT_ROOMS_RECORD);
+			if (!StringUtils.isEmpty(breakoutRoomsRecordParam)) {
+				breakoutRoomsRecord = Boolean.parseBoolean(breakoutRoomsRecordParam);
+			}
+
+			Boolean breakoutRoomsPrivateChatEnabled =  defaultbreakoutRoomsPrivateChatEnabled;
+			String breakoutRoomsPrivateChatEnabledParam = params.get(ApiParams.BREAKOUT_ROOMS_PRIVATE_CHAT_ENABLED);
+			if (!StringUtils.isEmpty(breakoutRoomsPrivateChatEnabledParam)) {
+				breakoutRoomsPrivateChatEnabled = Boolean.parseBoolean(breakoutRoomsPrivateChatEnabledParam);
+			}
+
+            Boolean breakoutRoomsCaptureSlides = defaultBreakoutRoomsCaptureSlides;
+            String breakoutRoomsCaptureParam = params.get(ApiParams.BREAKOUT_ROOMS_CAPTURE_SLIDES);
+            if (!StringUtils.isEmpty(breakoutRoomsCaptureParam)) {
+				breakoutRoomsCaptureSlides = Boolean.parseBoolean(breakoutRoomsCaptureParam);
+			}
+
+            Boolean breakoutRoomsCaptureNotes = defaultBreakoutRoomsCaptureNotes;
+            String breakoutRoomsCaptureNotesParam = params.get(ApiParams.BREAKOUT_ROOMS_CAPTURE_NOTES);
+            if (!StringUtils.isEmpty(breakoutRoomsCaptureNotesParam)) {
+				breakoutRoomsCaptureNotes = Boolean.parseBoolean(breakoutRoomsCaptureNotesParam);
+			}
+
+			return new BreakoutRoomsParams(breakoutRoomsRecord, breakoutRoomsPrivateChatEnabled, breakoutRoomsCaptureNotes, breakoutRoomsCaptureSlides);
+		}
+
+		private LockSettingsParams processLockSettingsParams(Map<String, String> params) {
+			Boolean lockSettingsDisableCam = defaultLockSettingsDisableCam;
+			String lockSettingsDisableCamParam = params.get(ApiParams.LOCK_SETTINGS_DISABLE_CAM);
+			if (!StringUtils.isEmpty(lockSettingsDisableCamParam)) {
+				lockSettingsDisableCam = Boolean.parseBoolean(lockSettingsDisableCamParam);
+			}
+
+			Boolean lockSettingsDisableMic = defaultLockSettingsDisableMic;
+			String lockSettingsDisableMicParam = params.get(ApiParams.LOCK_SETTINGS_DISABLE_MIC);
+			if (!StringUtils.isEmpty(lockSettingsDisableMicParam)) {
+				lockSettingsDisableMic = Boolean.parseBoolean(lockSettingsDisableMicParam);
+			}
+
+			Boolean lockSettingsDisablePrivateChat = defaultLockSettingsDisablePrivateChat;
+			String lockSettingsDisablePrivateChatParam = params.get(ApiParams.LOCK_SETTINGS_DISABLE_PRIVATE_CHAT);
+			if (!StringUtils.isEmpty(lockSettingsDisablePrivateChatParam)) {
+				lockSettingsDisablePrivateChat = Boolean.parseBoolean(lockSettingsDisablePrivateChatParam);
+			}
+
+			Boolean lockSettingsDisablePublicChat = defaultLockSettingsDisablePublicChat;
+			String lockSettingsDisablePublicChatParam = params.get(ApiParams.LOCK_SETTINGS_DISABLE_PUBLIC_CHAT);
+			if (!StringUtils.isEmpty(lockSettingsDisablePublicChatParam)) {
+				lockSettingsDisablePublicChat = Boolean.parseBoolean(lockSettingsDisablePublicChatParam);
+			}
+
+			Boolean lockSettingsDisableNotes = defaultLockSettingsDisableNotes;
+			String lockSettingsDisableNotesParam = params.get(ApiParams.LOCK_SETTINGS_DISABLE_NOTES);
+			if (!StringUtils.isEmpty(lockSettingsDisableNotesParam)) {
+				lockSettingsDisableNotes = Boolean.parseBoolean(lockSettingsDisableNotesParam);
+			} else {
+				// To be removed after deprecation period
+				lockSettingsDisableNotesParam = params.get(ApiParams.DEPRECATED_LOCK_SETTINGS_DISABLE_NOTES);
+				if (!StringUtils.isEmpty(lockSettingsDisableNotesParam)) {
+					log.warn("[DEPRECATION] use lockSettingsDisableNotes instead of lockSettingsDisableNote");
+					lockSettingsDisableNotes = Boolean.parseBoolean(lockSettingsDisableNotesParam);
+				}
+			}
+
+			Boolean lockSettingsHideUserList = defaultLockSettingsHideUserList;
+			String lockSettingsHideUserListParam = params.get(ApiParams.LOCK_SETTINGS_HIDE_USER_LIST);
+			if (!StringUtils.isEmpty(lockSettingsHideUserListParam)) {
+				lockSettingsHideUserList = Boolean.parseBoolean(lockSettingsHideUserListParam);
+			}
+
+			Boolean lockSettingsLockedLayout = defaultLockSettingsLockedLayout;
+			String lockSettingsLockedLayoutParam = params.get(ApiParams.LOCK_SETTINGS_LOCKED_LAYOUT);
+			if (!StringUtils.isEmpty(lockSettingsLockedLayoutParam)) {
+				lockSettingsLockedLayout = Boolean.parseBoolean(lockSettingsLockedLayoutParam);
+			}
+
+			Boolean lockSettingsLockOnJoin = defaultLockSettingsLockOnJoin;
+			String lockSettingsLockOnJoinParam = params.get(ApiParams.LOCK_SETTINGS_LOCK_ON_JOIN);
+			if (!StringUtils.isEmpty(lockSettingsLockOnJoinParam)) {
+				lockSettingsLockOnJoin = Boolean.parseBoolean(lockSettingsLockOnJoinParam);
+			}
+
+			Boolean lockSettingsLockOnJoinConfigurable = defaultLockSettingsLockOnJoinConfigurable;
+			String lockSettingsLockOnJoinConfigurableParam = params.get(ApiParams.LOCK_SETTINGS_LOCK_ON_JOIN_CONFIGURABLE);
+			if (!StringUtils.isEmpty(lockSettingsLockOnJoinConfigurableParam)) {
+				lockSettingsLockOnJoinConfigurable = Boolean.parseBoolean(lockSettingsLockOnJoinConfigurableParam);
+			}
+
+			Boolean lockSettingsHideViewersCursor = defaultLockSettingsHideViewersCursor;
+			String lockSettingsHideViewersCursorParam = params.get(ApiParams.LOCK_SETTINGS_HIDE_VIEWERS_CURSOR);
+			if (!StringUtils.isEmpty(lockSettingsHideViewersCursorParam)) {
+                lockSettingsHideViewersCursor = Boolean.parseBoolean(lockSettingsHideViewersCursorParam);
+			}
+
+			return new LockSettingsParams(lockSettingsDisableCam,
+							lockSettingsDisableMic,
+							lockSettingsDisablePrivateChat,
+							lockSettingsDisablePublicChat,
+							lockSettingsDisableNotes,
+							lockSettingsHideUserList,
+							lockSettingsLockedLayout,
+							lockSettingsLockOnJoin,
+							lockSettingsLockOnJoinConfigurable,
+                            lockSettingsHideViewersCursor);
+		}
+
+    private ArrayList<Group> processGroupsParams(Map<String, String> params) {
+        ArrayList<Group> groups = new ArrayList<Group>();
+
+        String groupsParam = params.get(ApiParams.GROUPS);
+        if (!StringUtils.isEmpty(groupsParam)) {
+            JsonElement groupParamsJson = new Gson().fromJson(groupsParam, JsonElement.class);
+
+            if(groupParamsJson != null && groupParamsJson.isJsonArray()) {
+                JsonArray groupsJson = groupParamsJson.getAsJsonArray();
+                for (JsonElement groupJson : groupsJson) {
+                    if(groupJson.isJsonObject()) {
+                        JsonObject groupJsonObj = groupJson.getAsJsonObject();
+                        if(groupJsonObj.has("id")) {
+                            String groupId = groupJsonObj.get("id").getAsString();
+                            String groupName = "";
+                            if(groupJsonObj.has("name")) {
+                                groupName = groupJsonObj.get("name").getAsString();
+                            }
+
+                            Vector<String> groupUsers = new Vector<>();
+                            if(groupJsonObj.has("roster") && groupJsonObj.get("roster").isJsonArray()) {
+                                for (JsonElement userExtId : groupJsonObj.get("roster").getAsJsonArray()) {
+                                    groupUsers.add(userExtId.getAsString());
+                                }
+                            }
+                            groups.add(new Group(groupId,groupName,groupUsers));
+                        }
+                    }
+                }
+            }
+        }
+
+        return groups;
+    }
+
     public Meeting processCreateParams(Map<String, String> params) {
 
         String meetingName = params.get(ApiParams.NAME);
@@ -363,11 +450,11 @@ public class ParamsProcessorUtil {
         int maxUsers = processMaxUser(params.get(ApiParams.MAX_PARTICIPANTS));
         int meetingDuration = processMeetingDuration(params.get(ApiParams.DURATION));
         int logoutTimer = processLogoutTimer(params.get(ApiParams.LOGOUT_TIMER));
-        
+
         // Banner parameters
         String bannerText = params.get(ApiParams.BANNER_TEXT);
         String bannerColor = params.get(ApiParams.BANNER_COLOR);
-        
+
         // set is breakout room property
         boolean isBreakout = false;
         if (!StringUtils.isEmpty(params.get(ApiParams.IS_BREAKOUT))) {
@@ -410,6 +497,66 @@ public class ParamsProcessorUtil {
             }
         }
 
+        // Check Disabled Features
+        ArrayList<String> listOfDisabledFeatures=new ArrayList(Arrays.asList(defaultDisabledFeatures.split(",")));
+        if (!StringUtils.isEmpty(params.get(ApiParams.DISABLED_FEATURES))) {
+            String disabledFeaturesParam = params.get(ApiParams.DISABLED_FEATURES);
+            listOfDisabledFeatures.addAll(Arrays.asList(disabledFeaturesParam.split(",")));
+        }
+        listOfDisabledFeatures.removeAll(Arrays.asList("", null));
+        listOfDisabledFeatures.replaceAll(String::trim);
+        listOfDisabledFeatures = new ArrayList<>(new HashSet<>(listOfDisabledFeatures));
+
+        // Check if VirtualBackgrounds is disabled
+        if (!StringUtils.isEmpty(params.get(ApiParams.VIRTUAL_BACKGROUNDS_DISABLED))) {
+            boolean virtualBackgroundsDisabled = Boolean.valueOf(params.get(ApiParams.VIRTUAL_BACKGROUNDS_DISABLED));
+            if(virtualBackgroundsDisabled == true && !listOfDisabledFeatures.contains("virtualBackgrounds")) {
+                log.warn("[DEPRECATION] use disabledFeatures=virtualBackgrounds instead of virtualBackgroundsDisabled=true");
+                listOfDisabledFeatures.add("virtualBackgrounds");
+            }
+        }
+
+        boolean learningDashboardEn = learningDashboardEnabled;
+        if (!StringUtils.isEmpty(params.get(ApiParams.LEARNING_DASHBOARD_ENABLED))) {
+            try {
+                learningDashboardEn = Boolean.parseBoolean(params.get(ApiParams.LEARNING_DASHBOARD_ENABLED));
+            } catch (Exception ex) {
+                log.warn("Invalid param [learningDashboardEnabled] for meeting=[{}]",internalMeetingId);
+            }
+        }
+        if(learningDashboardEn == false && !listOfDisabledFeatures.contains("learningDashboard")) {
+            log.warn("[DEPRECATION] use disabledFeatures=learningDashboard instead of learningDashboardEnabled=false");
+            listOfDisabledFeatures.add("learningDashboard");
+        }
+
+        int learningDashboardCleanupMins = 0;
+
+        // Learning Dashboard not allowed for Breakout Rooms
+        if(!isBreakout) {
+            learningDashboardCleanupMins = learningDashboardCleanupDelayInMinutes;
+            if (!StringUtils.isEmpty(params.get(ApiParams.LEARNING_DASHBOARD_CLEANUP_DELAY_IN_MINUTES))) {
+                try {
+                    learningDashboardCleanupMins = Integer.parseInt(params
+                            .get(ApiParams.LEARNING_DASHBOARD_CLEANUP_DELAY_IN_MINUTES));
+                } catch (Exception ex) {
+                    log.warn(
+                            "Invalid param [learningDashboardCleanupDelayInMinutes] for meeting=[{}]",
+                            internalMeetingId);
+                }
+            }
+        }
+
+        //Generate token to access Activity Report
+        String learningDashboardAccessToken = "";
+        if(listOfDisabledFeatures.contains("learningDashboard") == false) {
+            learningDashboardAccessToken = RandomStringUtils.randomAlphanumeric(12).toLowerCase();
+        }
+
+        Boolean notifyRecordingIsOn = defaultNotifyRecordingIsOn;
+        if (!StringUtils.isEmpty(params.get(ApiParams.NOTIFY_RECORDING_IS_ON))) {
+            notifyRecordingIsOn = Boolean.parseBoolean(params.get(ApiParams.NOTIFY_RECORDING_IS_ON));
+        }
+
         boolean webcamsOnlyForMod = webcamsOnlyForModerator;
         if (!StringUtils.isEmpty(params.get(ApiParams.WEBCAMS_ONLY_FOR_MODERATOR))) {
             try {
@@ -422,11 +569,108 @@ public class ParamsProcessorUtil {
             }
         }
 
+        Integer meetingCameraCap = defaultMeetingCameraCap;
+        if (!StringUtils.isEmpty(params.get(ApiParams.MEETING_CAMERA_CAP))) {
+            try {
+                Integer meetingCameraCapParam = Integer.parseInt(params.get(ApiParams.MEETING_CAMERA_CAP));
+                if (meetingCameraCapParam >= 0) meetingCameraCap = meetingCameraCapParam;
+            } catch (NumberFormatException e) {
+                log.warn("Invalid param [meetingCameraCap] for meeting=[{}]", internalMeetingId);
+            }
+        }
+
+        Integer userCameraCap = defaultUserCameraCap;
+        if (!StringUtils.isEmpty(params.get(ApiParams.USER_CAMERA_CAP))) {
+            try {
+                Integer userCameraCapParam = Integer.parseInt(params.get(ApiParams.USER_CAMERA_CAP));
+                if (userCameraCapParam >= 0) userCameraCap = userCameraCapParam;
+            } catch (NumberFormatException e) {
+                log.warn("Invalid param [userCameraCap] for meeting=[{}]", internalMeetingId);
+            }
+        }
+
+        Integer maxPinnedCameras = defaultMaxPinnedCameras;
+        if (!StringUtils.isEmpty(params.get(ApiParams.MAX_PINNED_CAMERAS))) {
+          try {
+            Integer maxPinnedCamerasParam = Integer.parseInt(params.get(ApiParams.MAX_PINNED_CAMERAS));
+            if (maxPinnedCamerasParam > 0) maxPinnedCameras = maxPinnedCamerasParam;
+          } catch (NumberFormatException e) {
+            log.warn("Invalid param [maxPinnedCameras] for meeting =[{}]", internalMeetingId);
+          }
+        }
+
+        Integer meetingExpireIfNoUserJoinedInMinutes = defaultMeetingExpireIfNoUserJoinedInMinutes;
+        if (!StringUtils.isEmpty(params.get(ApiParams.MEETING_EXPIRE_IF_NO_USER_JOINED_IN_MINUTES))) {
+            try {
+                meetingExpireIfNoUserJoinedInMinutes = Integer.parseInt(params.get(ApiParams.MEETING_EXPIRE_IF_NO_USER_JOINED_IN_MINUTES));
+            } catch (NumberFormatException e) {
+                log.warn("Invalid param [meetingExpireIfNoUserJoinedInMinutes] for meeting=[{}]", internalMeetingId);
+            }
+        }
+
+        Integer meetingExpireWhenLastUserLeftInMinutes = defaultMeetingExpireWhenLastUserLeftInMinutes;
+        if (!StringUtils.isEmpty(params.get(ApiParams.MEETING_EXPIRE_WHEN_LAST_USER_LEFT_IN_MINUTES))) {
+            try {
+                meetingExpireWhenLastUserLeftInMinutes = Integer.parseInt(params.get(ApiParams.MEETING_EXPIRE_WHEN_LAST_USER_LEFT_IN_MINUTES));
+            } catch (NumberFormatException e) {
+                log.warn("Invalid param [meetingExpireWhenLastUserLeftInMinutes] for meeting=[{}]", internalMeetingId);
+            }
+        }
+
+        boolean endWhenNoModerator = defaultEndWhenNoModerator;
+        if (!StringUtils.isEmpty(params.get(ApiParams.END_WHEN_NO_MODERATOR))) {
+          try {
+	          endWhenNoModerator = Boolean.parseBoolean(params.get(ApiParams.END_WHEN_NO_MODERATOR));
+          } catch (Exception ex) {
+            log.warn("Invalid param [endWhenNoModerator] for meeting=[{}]", internalMeetingId);
+          }
+        }
+
+        int endWhenNoModeratorDelayInMinutes = defaultEndWhenNoModeratorDelayInMinutes;
+        if (!StringUtils.isEmpty(params.get(ApiParams.END_WHEN_NO_MODERATOR_DELAY_IN_MINUTES))) {
+          try {
+              endWhenNoModeratorDelayInMinutes = Integer.parseInt(params.get(ApiParams.END_WHEN_NO_MODERATOR_DELAY_IN_MINUTES));
+          } catch (Exception ex) {
+            log.warn("Invalid param [endWhenNoModeratorDelayInMinutes] for meeting=[{}]", internalMeetingId);
+          }
+        }
+
         String guestPolicy = defaultGuestPolicy;
         if (!StringUtils.isEmpty(params.get(ApiParams.GUEST_POLICY))) {
         	guestPolicy = params.get(ApiParams.GUEST_POLICY);
-		}
-        
+		    }
+
+        String presentationUploadExternalDescription = defaultPresentationUploadExternalDescription;
+        if (!StringUtils.isEmpty(params.get(ApiParams.PRESENTATION_UPLOAD_EXTERNAL_DESCRIPTION))) {
+            presentationUploadExternalDescription = params.get(ApiParams.PRESENTATION_UPLOAD_EXTERNAL_DESCRIPTION);
+        }
+
+        String presentationUploadExternalUrl = defaultPresentationUploadExternalUrl;
+        if (!StringUtils.isEmpty(params.get(ApiParams.PRESENTATION_UPLOAD_EXTERNAL_URL))) {
+            presentationUploadExternalUrl = params.get(ApiParams.PRESENTATION_UPLOAD_EXTERNAL_URL);
+        }
+
+        String meetingLayout = defaultMeetingLayout;
+
+        ArrayList<Group> groups = processGroupsParams(params);
+
+        if (!StringUtils.isEmpty(params.get(ApiParams.MEETING_LAYOUT))) {
+            meetingLayout = params.get(ApiParams.MEETING_LAYOUT);
+        }
+
+        Boolean breakoutRoomsEnabled = defaultBreakoutRoomsEnabled;
+        String breakoutRoomsEnabledParam = params.get(ApiParams.BREAKOUT_ROOMS_ENABLED);
+        if (!StringUtils.isEmpty(breakoutRoomsEnabledParam)) {
+            breakoutRoomsEnabled = Boolean.parseBoolean(breakoutRoomsEnabledParam);
+        }
+        if(breakoutRoomsEnabled == false && !listOfDisabledFeatures.contains("breakoutRooms")) {
+            log.warn("[DEPRECATION] use disabledFeatures=breakoutRooms instead of breakoutRoomsEnabled=false");
+            listOfDisabledFeatures.add("breakoutRooms");
+        }
+
+        BreakoutRoomsParams breakoutParams = processBreakoutRoomsParams(params);
+        LockSettingsParams lockSettingsParams = processLockSettingsParams(params);
+
         // Collect metadata for this meeting that the third-party app wants to
         // store if meeting is recorded.
         Map<String, String> meetingInfo = processMetaParam(params);
@@ -443,13 +687,22 @@ public class ParamsProcessorUtil {
         String parentMeetingId = "";
         if (isBreakout) {
             internalMeetingId = params.get(ApiParams.MEETING_ID);
-            parentMeetingId = params.get(ApiParams.PARENT_MEETING_ID);
+            parentMeetingId = ServiceUtils.findMeetingFromMeetingID(params.get(ApiParams.PARENT_MEETING_ID)).getInternalId();
             // We rebuild the the external meeting using the has of the parent
             // meeting, the shared timestamp and the sequence number
             String timeStamp = StringUtils.substringAfter(internalMeetingId, "-");
             String externalHash = DigestUtils
-                    .sha1Hex((parentMeetingId + "-" + timeStamp + "-" + params.get("sequence")));
+                    .sha1Hex((parentMeetingId + "-" + timeStamp + "-" + params.get(ApiParams.SEQUENCE)));
             externalMeetingId = externalHash + "-" + timeStamp;
+        }
+
+        String avatarURL = useDefaultAvatar ? defaultAvatarURL : "";
+
+        int html5InstanceId = processHtml5InstanceId(params.get(ApiParams.HTML5_INSTANCE_ID));
+
+        if(defaultAllowDuplicateExtUserid == false) {
+            log.warn("[DEPRECATION] use `maxUserConcurrentAccesses=1` instead of `allowDuplicateExtUserid=false`");
+            maxUserConcurrentAccesses = 1;
         }
 
         // Create the meeting with all passed in parameters.
@@ -462,133 +715,146 @@ public class ParamsProcessorUtil {
                 .withBannerText(bannerText).withBannerColor(bannerColor)
                 .withTelVoice(telVoice).withWebVoice(webVoice)
                 .withDialNumber(dialNumber)
-                .withDefaultAvatarURL(defaultAvatarURL)
+                .withDefaultAvatarURL(avatarURL)
                 .withAutoStartRecording(autoStartRec)
                 .withAllowStartStopRecording(allowStartStoptRec)
                 .withWebcamsOnlyForModerator(webcamsOnlyForMod)
+                .withMeetingCameraCap(meetingCameraCap)
+                .withUserCameraCap(userCameraCap)
+                .withMaxPinnedCameras(maxPinnedCameras)
                 .withMetadata(meetingInfo)
                 .withWelcomeMessageTemplate(welcomeMessageTemplate)
                 .withWelcomeMessage(welcomeMessage).isBreakout(isBreakout)
                 .withGuestPolicy(guestPolicy)
+                .withAuthenticatedGuest(authenticatedGuest)
+                .withAllowRequestsWithoutSession(allowRequestsWithoutSession)
+                .withMeetingLayout(meetingLayout)
+				.withBreakoutRoomsParams(breakoutParams)
+				.withLockSettingsParams(lockSettingsParams)
+				.withMaxUserConcurrentAccesses(maxUserConcurrentAccesses)
+                .withHTML5InstanceId(html5InstanceId)
+                .withLearningDashboardCleanupDelayInMinutes(learningDashboardCleanupMins)
+                .withLearningDashboardAccessToken(learningDashboardAccessToken)
+                .withGroups(groups)
+                .withDisabledFeatures(listOfDisabledFeatures)
+                .withNotifyRecordingIsOn(notifyRecordingIsOn)
+                .withPresentationUploadExternalDescription(presentationUploadExternalDescription)
+                .withPresentationUploadExternalUrl(presentationUploadExternalUrl)
                 .build();
 
-        String configXML = getDefaultConfigXML();
-        meeting.storeConfig(true, configXML);
-
         if (!StringUtils.isEmpty(params.get(ApiParams.MODERATOR_ONLY_MESSAGE))) {
-            String moderatorOnlyMessageTemplate = params.get("moderatorOnlyMessage");
+            String moderatorOnlyMessageTemplate = params.get(ApiParams.MODERATOR_ONLY_MESSAGE);
             String moderatorOnlyMessage = substituteKeywords(moderatorOnlyMessageTemplate,
                     dialNumber, telVoice, meetingName);
             meeting.setModeratorOnlyMessage(moderatorOnlyMessage);
         }
 
-        meeting.setMaxInactivityTimeoutMinutes(maxInactivityTimeoutMinutes);
-        meeting.setWarnMinutesBeforeMax(warnMinutesBeforeMax);
+        if (!StringUtils.isEmpty(params.get(ApiParams.MEETING_ENDED_CALLBACK_URL))) {
+        	String meetingEndedCallbackURL = params.get(ApiParams.MEETING_ENDED_CALLBACK_URL);
+        	meeting.setMeetingEndedCallbackURL(meetingEndedCallbackURL);
+        }
+
         meeting.setMeetingExpireIfNoUserJoinedInMinutes(meetingExpireIfNoUserJoinedInMinutes);
 		meeting.setMeetingExpireWhenLastUserLeftInMinutes(meetingExpireWhenLastUserLeftInMinutes);
 		meeting.setUserInactivityInspectTimerInMinutes(userInactivityInspectTimerInMinutes);
 		meeting.setUserActivitySignResponseDelayInMinutes(userActivitySignResponseDelayInMinutes);
 		meeting.setUserInactivityThresholdInMinutes(userInactivityThresholdInMinutes);
+//		meeting.setHtml5InstanceId(html5InstanceId);
+        meeting.setEndWhenNoModerator(endWhenNoModerator);
+        meeting.setEndWhenNoModeratorDelayInMinutes(endWhenNoModeratorDelayInMinutes);
 
         // Add extra parameters for breakout room
         if (isBreakout) {
-            meeting.setSequence(Integer.parseInt(params.get("sequence")));
-            meeting.setFreeJoin(Boolean.parseBoolean(params.get("freeJoin")));
+            meeting.setSequence(Integer.parseInt(params.get(ApiParams.SEQUENCE)));
+            meeting.setFreeJoin(Boolean.parseBoolean(params.get(ApiParams.FREE_JOIN)));
+            meeting.setCaptureSlides(Boolean.parseBoolean(params.get(ApiParams.BREAKOUT_ROOMS_CAPTURE_SLIDES)));
+            meeting.setCaptureNotes(Boolean.parseBoolean(params.get(ApiParams.BREAKOUT_ROOMS_CAPTURE_NOTES)));
             meeting.setParentMeetingId(parentMeetingId);
         }
 
-		if (!StringUtils.isEmpty(params.get("logo"))) {
-			meeting.setCustomLogoURL(params.get("logo"));
+		if (!StringUtils.isEmpty(params.get(ApiParams.LOGO))) {
+			meeting.setCustomLogoURL(params.get(ApiParams.LOGO));
+		} else if (this.getUseDefaultLogo()) {
+			meeting.setCustomLogoURL(this.getDefaultLogoURL());
 		}
 
-		if (!StringUtils.isEmpty(params.get("copyright"))) {
-			meeting.setCustomCopyright(params.get("copyright"));
+		if (!StringUtils.isEmpty(params.get(ApiParams.COPYRIGHT))) {
+			meeting.setCustomCopyright(params.get(ApiParams.COPYRIGHT));
 		}
 		Boolean muteOnStart = defaultMuteOnStart;
-		if (!StringUtils.isEmpty(params.get("muteOnStart"))) {
-        	muteOnStart = Boolean.parseBoolean(params.get("muteOnStart"));
+		if (!StringUtils.isEmpty(params.get(ApiParams.MUTE_ON_START))) {
+        	muteOnStart = Boolean.parseBoolean(params.get(ApiParams.MUTE_ON_START));
         }
 
+		// when a moderator joins in a breakout room only with the audio, and the muteOnStart is set to true,
+		// the moderator is unable to unmute himself, because they don't have an icon to do so
+		if (isBreakout) {
+			muteOnStart = false;
+		}
+
 		meeting.setMuteOnStart(muteOnStart);
+
+    Boolean meetingKeepEvents = defaultKeepEvents;
+    if (!StringUtils.isEmpty(params.get(ApiParams.MEETING_KEEP_EVENTS))) {
+      meetingKeepEvents = Boolean.parseBoolean(params.get(ApiParams.MEETING_KEEP_EVENTS));
+    }
+    meeting.setMeetingKeepEvents(meetingKeepEvents);
+
+        Boolean allowModsToUnmuteUsers = defaultAllowModsToUnmuteUsers;
+        if (!StringUtils.isEmpty(params.get(ApiParams.ALLOW_MODS_TO_UNMUTE_USERS))) {
+            allowModsToUnmuteUsers = Boolean.parseBoolean(params.get(ApiParams.ALLOW_MODS_TO_UNMUTE_USERS));
+        }
+        meeting.setAllowModsToUnmuteUsers(allowModsToUnmuteUsers);
+
+        if (!StringUtils.isEmpty(params.get(ApiParams.ALLOW_REQUESTS_WITHOUT_SESSION))) {
+            meeting.setAllowRequestsWithoutSession(Boolean.parseBoolean(params.get(ApiParams.ALLOW_REQUESTS_WITHOUT_SESSION)));
+        }
+
+    Boolean allowModsToEjectCameras = defaultAllowModsToEjectCameras;
+    if (!StringUtils.isEmpty(params.get(ApiParams.ALLOW_MODS_TO_EJECT_CAMERAS))) {
+      allowModsToEjectCameras = Boolean.parseBoolean(params.get(ApiParams.ALLOW_MODS_TO_EJECT_CAMERAS));
+    }
+    meeting.setAllowModsToEjectCameras(allowModsToEjectCameras);
+
         return meeting;
     }
-	
+
 	public String getApiVersion() {
 		return apiVersion;
 	}
-	
+
 	public boolean isServiceEnabled() {
 		return serviceEnabled;
 	}
-	
-	public String getDefaultClientUrl() {
-		return defaultClientUrl;
+
+	public String getDefaultHTML5ClientUrl() {
+		return defaultHTML5ClientUrl;
 	}
 
 	public String getDefaultGuestWaitURL() {
 		return defaultGuestWaitURL;
         }
 
-	public String getHTML5ClientUrl() {
-		return html5ClientUrl;
+	public Boolean getUseDefaultLogo() {
+		return useDefaultLogo;
 	}
 
-	public Boolean getAttendeesJoinViaHTML5Client() {
-		return attendeesJoinViaHTML5Client;
+	public String getDefaultLogoURL() {
+		return defaultLogoURL;
 	}
 
-	public Boolean getModeratorsJoinViaHTML5Client() {
-		return moderatorsJoinViaHTML5Client;
+	public Boolean getAllowRequestsWithoutSession() {
+		return allowRequestsWithoutSession;
 	}
 
-	public String getDefaultConfigXML() {
-		defaultConfigXML = getConfig(defaultConfigURL);
-		
-		return defaultConfigXML;
-	}
-	
-	private String getConfig(String url) {
-		String configXML = "";
+  public Integer getDefaultHttpSessionTimeout() {
+    return defaultHttpSessionTimeout;
+  }
 
-		CloseableHttpClient httpclient = HttpClients.createDefault();
-		try {
-			HttpGet httpget = new HttpGet(url);
+  public void setDefaultHttpSessionTimeout(Integer value) {
+    this.defaultHttpSessionTimeout = value;
+  }
 
-			// Create a custom response handler
-			ResponseHandler<String> responseHandler = new ResponseHandler<String>() {
-
-				@Override
-				public String handleResponse(
-						final HttpResponse response) throws IOException {
-					int status = response.getStatusLine().getStatusCode();
-					if (status >= 200 && status < 300) {
-						HttpEntity entity = response.getEntity();
-						return entity != null ? EntityUtils.toString(entity, StandardCharsets.UTF_8) : null;
-					} else {
-						throw new ClientProtocolException("Unexpected response status: " + status);
-					}
-				}
-			};
-
-			String responseBody = httpclient.execute(httpget, responseHandler);
-			configXML = responseBody;
-		} catch(IOException ex) {
-			// IOException
-		} finally {
-			try {
-				httpclient.close();
-			} catch(IOException ex) {
-				// do nothing
-			}
-		}
-
-		return configXML;
-	  }
-	
-	public String getDefaultConfigURL() {
-		return defaultConfigURL;
-	}
-	
 	public String getDefaultLogoutUrl() {
 		 if ((StringUtils.isEmpty(defaultLogoutUrl)) || "default".equalsIgnoreCase(defaultLogoutUrl)) {
      		return defaultServerUrl;
@@ -596,7 +862,15 @@ public class ParamsProcessorUtil {
      		return defaultLogoutUrl;
      	}
 	}
-	
+
+  public String getBbbVersion() {
+    return bbbVersion;
+  }
+
+  public Boolean getAllowRevealOfBBBVersion() {
+    return allowRevealOfBBBVersion;
+  }
+
     public String processWelcomeMessage(String message, Boolean isBreakout) {
         String welcomeMessage = message;
         if (StringUtils.isEmpty(message)) {
@@ -610,75 +884,86 @@ public class ParamsProcessorUtil {
 	public String convertToInternalMeetingId(String extMeetingId) {
 		return DigestUtils.sha1Hex(extMeetingId);
 	}
-	
-	public String processPassword(String pass) {
-		return StringUtils.isEmpty(pass) ? RandomStringUtils.randomAlphanumeric(8) : pass;
-	}
 
-	public boolean hasChecksumAndQueryString(String checksum, String queryString) {
+    public String processPassword(String pass) {
+        return StringUtils.isEmpty(pass) ? RandomStringUtils.randomAlphanumeric(8) : pass;
+    }
+
+    public boolean hasChecksumAndQueryString(String checksum, String queryString) {
 		return (! StringUtils.isEmpty(checksum) && StringUtils.isEmpty(queryString));
 	}
-		
+
 	public String processTelVoice(String telNum) {
 		return StringUtils.isEmpty(telNum) ? RandomStringUtils.randomNumeric(defaultNumDigitsForTelVoice) : telNum;
 	}
-		
+
 	public String processDialNumber(String dial) {
-		return StringUtils.isEmpty(dial) ? defaultDialAccessNumber : dial;	
+		return StringUtils.isEmpty(dial) ? defaultDialAccessNumber : dial;
 	}
-	
+
 	public String processLogoutUrl(String logoutUrl) {
 		if (StringUtils.isEmpty(logoutUrl)) {
 	        if ((StringUtils.isEmpty(defaultLogoutUrl)) || "default".equalsIgnoreCase(defaultLogoutUrl)) {
         		return defaultServerUrl;
         	} else {
         		return defaultLogoutUrl;
-        	}	
+        	}
 		}
-		
+
 		return logoutUrl;
 	}
-	
+
 	public boolean processRecordMeeting(String record) {
 		// The administrator has turned off recording for all meetings.
 		if (disableRecordingDefault) {
 			log.info("Recording is turned OFF by default.");
 			return false;
 		}
-		
-		boolean rec = false;			
+
+		boolean rec = false;
 		if(! StringUtils.isEmpty(record)){
 			try {
 				rec = Boolean.parseBoolean(record);
-			} catch(Exception ex){ 
+			} catch(Exception ex){
 				rec = false;
 			}
 		}
-		
+
 		return rec;
 	}
-		
+
+	public int processHtml5InstanceId(String instanceId) {
+		int html5InstanceId = 1;
+		try {
+            html5InstanceId = Integer.parseInt(instanceId);
+		} catch(Exception ex) {
+            html5InstanceId = defaultHtml5InstanceId;
+		}
+
+		return html5InstanceId;
+	}
+
 	public int processMaxUser(String maxUsers) {
 		int mUsers = -1;
-		
+
 		try {
 			mUsers = Integer.parseInt(maxUsers);
-		} catch(Exception ex) { 
+		} catch(Exception ex) {
 			mUsers = defaultMaxUsers;
-		}		
-		
+		}
+
 		return mUsers;
-	}	
+	}
 
   public int processMeetingDuration(String duration) {
     int mDuration = -1;
-    
+
     try {
       mDuration = Integer.parseInt(duration);
-    } catch(Exception ex) { 
+    } catch(Exception ex) {
       mDuration = defaultMeetingDuration;
-    }   
-    
+    }
+
     return mDuration;
   }
 
@@ -694,43 +979,21 @@ public class ParamsProcessorUtil {
 		return mDuration;
 	}
 
-	public boolean isTestMeeting(String telVoice) {	
-		return ((! StringUtils.isEmpty(telVoice)) && 
-				(! StringUtils.isEmpty(testVoiceBridge)) && 
-				(telVoice == testVoiceBridge));	
-	}
-		
-	public String getIntMeetingIdForTestMeeting(String telVoice) {		
-		if ((testVoiceBridge != null) && (telVoice == testVoiceBridge)) {
-			if (StringUtils.isEmpty(testConferenceMock)) 
-				return testConferenceMock;
-		} 
-		
-		return "";	
-	}
-	
-	public boolean isConfigXMLChecksumSame(String meetingID, String configXML, String checksum) {
-		if (StringUtils.isEmpty(securitySalt)) {
-			log.warn("Security is disabled in this service. Make sure this is intentional.");
-			return true;
-		}
+    public boolean isTestMeeting(String telVoice) {
+        return ((!StringUtils.isEmpty(telVoice)) && (!StringUtils.isEmpty(testVoiceBridge))
+                && (telVoice.equals(testVoiceBridge)));
+    }
 
-		log.info("CONFIGXML CHECKSUM={} length={}", checksum, checksum.length());
+    public String getIntMeetingIdForTestMeeting(String telVoice) {
+        if ((testVoiceBridge != null) && (testVoiceBridge.equals(telVoice))
+                && StringUtils.isEmpty(testConferenceMock)) {
+            return testConferenceMock;
+        }
 
-		String data = meetingID + configXML + securitySalt;
-		String cs = DigestUtils.sha1Hex(data);
-		if (checksum.length() == 64) {
-			cs = DigestUtils.sha256Hex(data);
-			log.info("CONFIGXML SHA256 {}", cs);
-		}
+        return "";
+    }
 
-		if (cs == null || !cs.equals(checksum)) {
-			log.info("checksumError: configXML checksum. our: [{}], client: [{}]", cs, checksum);
-			return false;
-		}
-		return true;
-	}
-	
+	// Can be removed. Checksum validation is performed by the ChecksumValidator
 	public boolean isChecksumSame(String apiCall, String checksum, String queryString) {
 		if (StringUtils.isEmpty(securitySalt)) {
 			log.warn("Security is disabled in this service. Make sure this is intentional.");
@@ -750,21 +1013,49 @@ public class ParamsProcessorUtil {
 		log.info("CHECKSUM={} length={}", checksum, checksum.length());
 
 		String data = apiCall + queryString + securitySalt;
-		String cs = DigestUtils.sha1Hex(data);
-		if (checksum.length() == 64) {
-			cs = DigestUtils.sha256Hex(data);
-			log.info("SHA256 {}", cs);
-		}
-		if (cs == null || cs.equals(checksum) == false) {
+
+		int checksumLength = checksum.length();
+        String cs = null;
+
+        switch(checksumLength) {
+            case 40:
+                if(supportedChecksumAlgorithms.contains("sha1")) {
+                    cs = DigestUtils.sha1Hex(data);
+                    log.info("SHA1 {}", cs);
+                }
+                break;
+            case 64:
+                if(supportedChecksumAlgorithms.contains("sha256")) {
+                    cs = DigestUtils.sha256Hex(data);
+                    log.info("SHA256 {}", cs);
+                }
+                break;
+            case 96:
+                if(supportedChecksumAlgorithms.contains("sha384")) {
+                    cs = DigestUtils.sha384Hex(data);
+                    log.info("SHA384 {}", cs);
+                }
+                break;
+            case 128:
+                if(supportedChecksumAlgorithms.contains("sha512")) {
+                    cs = DigestUtils.sha512Hex(data);
+                    log.info("SHA512 {}", cs);
+                }
+                break;
+            default:
+                log.info("No algorithm could be found that matches the provided checksum length");
+        }
+
+		if (cs == null || !cs.equals(checksum)) {
 			log.info("query string after checksum removed: [{}]", queryString);
 			log.info("checksumError: query string checksum failed. our: [{}], client: [{}]", cs, checksum);
 			return false;
 		}
 
-		return true; 
+		return true;
 	}
-	
-	public boolean isPostChecksumSame(String apiCall, HashMap<String, String[]> params) {
+
+	public boolean isPostChecksumSame(String apiCall, Map<String, String[]> params) {
 		if (StringUtils.isEmpty(securitySalt)) {
 			log.warn("Security is disabled in this service. Make sure this is intentional.");
 			return true;
@@ -772,9 +1063,9 @@ public class ParamsProcessorUtil {
 
 		StringBuilder csbuf = new StringBuilder();
 		csbuf.append(apiCall);
- 
+
 		SortedSet<String> keys = new TreeSet<>(params.keySet());
- 
+
 		boolean first = true;
 		String checksum = null;
 		for (String key: keys) {
@@ -783,7 +1074,7 @@ public class ParamsProcessorUtil {
 				checksum = params.get(key)[0];
 				continue;
 			}
- 
+
 			for (String value: params.get(key)) {
 				if (first) {
 					first = false;
@@ -795,26 +1086,26 @@ public class ParamsProcessorUtil {
 				String encResult;
 
 				encResult = value;
-				
+
 /*****
  * Seems like Grails 2.3.6 decodes the string. So we need to re-encode it.
- * We'll remove this later. richard (aug 5, 2014)						
-*/				try {       
+ * We'll remove this later. richard (aug 5, 2014)
+*/				try {
 					// we need to re-encode the values because Grails unencoded it
 					// when it received the 'POST'ed data. Might not need to do in a GET request.
-					encResult = URLEncoder.encode(value, StandardCharsets.UTF_8.name());  
-				} catch (UnsupportedEncodingException e) {       
-					encResult = value;     
-				} 					
+					encResult = URLEncoder.encode(value, StandardCharsets.UTF_8.name());
+				} catch (UnsupportedEncodingException e) {
+					encResult = value;
+				}
 
 				csbuf.append(encResult);
 			}
 		}
 		csbuf.append(securitySalt);
 
-		String baseString = csbuf.toString();				
+		String baseString = csbuf.toString();
 		String cs = DigestUtils.sha1Hex(baseString);
-		
+
 		if (cs == null || !cs.equals(checksum)) {
 			log.info("POST basestring = {}", baseString);
 			log.info("checksumError: failed checksum. our checksum: [{}], client: [{}]", cs, checksum);
@@ -827,7 +1118,7 @@ public class ParamsProcessorUtil {
 	/*************************************************
 	 * Setters
 	 ************************************************/
-	
+
 	public void setApiVersion(String apiVersion) {
 		this.apiVersion = apiVersion;
 	}
@@ -835,10 +1126,14 @@ public class ParamsProcessorUtil {
 	public void setServiceEnabled(boolean e) {
 		serviceEnabled = e;
 	}
-	
+
 	public void setSecuritySalt(String securitySalt) {
 		this.securitySalt = securitySalt;
 	}
+
+    public void setSupportedChecksumAlgorithms(String supportedChecksumAlgorithms) { this.supportedChecksumAlgorithms = supportedChecksumAlgorithms; }
+
+	public void setChecksumHash(String checksumHash) { this.checksumHash = checksumHash; }
 
 	public void setDefaultMaxUsers(int defaultMaxUsers) {
 		this.defaultMaxUsers = defaultMaxUsers;
@@ -847,7 +1142,7 @@ public class ParamsProcessorUtil {
 	public void setDefaultWelcomeMessage(String defaultWelcomeMessage) {
 		this.defaultWelcomeMessage = defaultWelcomeMessage;
 	}
-	
+
 	public void setDefaultWelcomeMessageFooter(String defaultWelcomeMessageFooter) {
 	    this.defaultWelcomeMessageFooter = defaultWelcomeMessageFooter;
 	}
@@ -868,10 +1163,6 @@ public class ParamsProcessorUtil {
 		this.defaultLogoutUrl = defaultLogoutUrl;
 	}
 
-	public void setDefaultConfigURL(String defaultConfigUrl) {
-		this.defaultConfigURL = defaultConfigUrl;
-	}
-	
 	public void setDefaultServerUrl(String defaultServerUrl) {
 		this.defaultServerUrl = defaultServerUrl;
 	}
@@ -880,24 +1171,24 @@ public class ParamsProcessorUtil {
 		this.defaultNumDigitsForTelVoice = defaultNumDigitsForTelVoice;
 	}
 
-	public void setDefaultClientUrl(String defaultClientUrl) {
-		this.defaultClientUrl = defaultClientUrl;
+	public void setDefaultHTML5ClientUrl(String defaultHTML5ClientUrl) {
+		this.defaultHTML5ClientUrl = defaultHTML5ClientUrl;
 	}
 
 	public void setDefaultGuestWaitURL(String url) {
 		this.defaultGuestWaitURL = url;
         }
 
-	public void setHtml5ClientUrl(String html5ClientUrl) {
-		this.html5ClientUrl = html5ClientUrl;
+	public void setUseDefaultLogo(Boolean value) {
+		this.useDefaultLogo = value;
 	}
 
-	public void setModeratorsJoinViaHTML5Client(Boolean moderatorsJoinViaHTML5Client) {
-		this.moderatorsJoinViaHTML5Client = moderatorsJoinViaHTML5Client;
+	public void setDefaultLogoURL(String url) {
+		this.defaultLogoURL = url;
 	}
 
-	public void setAttendeesJoinViaHTML5Client(Boolean attendeesJoinViaHTML5Client) {
-		this.attendeesJoinViaHTML5Client = attendeesJoinViaHTML5Client;
+	public void setAllowRequestsWithoutSession(Boolean allowRequestsWithoutSession) {
+		this.allowRequestsWithoutSession = allowRequestsWithoutSession;
 	}
 
 	public void setDefaultMeetingDuration(int defaultMeetingDuration) {
@@ -907,7 +1198,7 @@ public class ParamsProcessorUtil {
 	public void setDisableRecordingDefault(boolean disabled) {
 		this.disableRecordingDefault = disabled;
 	}
-	
+
 	public void setAutoStartRecording(boolean start) {
 		this.autoStartRecording = start;
 	}
@@ -915,11 +1206,35 @@ public class ParamsProcessorUtil {
     public void setAllowStartStopRecording(boolean allowStartStopRecording) {
         this.allowStartStopRecording = allowStartStopRecording;
     }
-	
+
+    public void setLearningDashboardEnabled(boolean learningDashboardEnabled) {
+        this.learningDashboardEnabled = learningDashboardEnabled;
+    }
+
+    public void setLearningDashboardCleanupDelayInMinutes(int learningDashboardCleanupDelayInMinutes) {
+        this.learningDashboardCleanupDelayInMinutes = learningDashboardCleanupDelayInMinutes;
+    }
+
     public void setWebcamsOnlyForModerator(boolean webcamsOnlyForModerator) {
         this.webcamsOnlyForModerator = webcamsOnlyForModerator;
     }
-	
+
+    public void setDefaultMeetingCameraCap(Integer meetingCameraCap) {
+        this.defaultMeetingCameraCap = meetingCameraCap;
+    }
+
+    public void setDefaultUserCameraCap(Integer userCameraCap) {
+        this.defaultUserCameraCap = userCameraCap;
+    }
+
+    public void setDefaultMaxPinnedCameras(Integer maxPinnedCameras) {
+        this.defaultMaxPinnedCameras = maxPinnedCameras;
+    }
+
+	public void setUseDefaultAvatar(Boolean value) {
+		this.useDefaultAvatar = value;
+	}
+
 	public void setdefaultAvatarURL(String url) {
 		this.defaultAvatarURL = url;
 	}
@@ -928,38 +1243,26 @@ public class ParamsProcessorUtil {
 		this.defaultGuestPolicy =  guestPolicy;
 	}
 
-	public void setMaxInactivityTimeoutMinutes(Integer value) {
-		maxInactivityTimeoutMinutes = value;
+	public void setAuthenticatedGuest(Boolean value) {
+		this.authenticatedGuest = value;
+	}
+
+  public void setDefaultMeetingLayout(String meetingLayout) {
+		this.defaultMeetingLayout =  meetingLayout;
 	}
 
 	public void setClientLogoutTimerInMinutes(Integer value) {
 		clientLogoutTimerInMinutes = value;
 	}
 
-	public void setWarnMinutesBeforeMax(Integer value) {
-		warnMinutesBeforeMax = value;
-	}
-
-	public Integer getMaxInactivityTimeoutMinutes() {
-		return maxInactivityTimeoutMinutes;
-	}
-
-	public Integer getWarnMinutesBeforeMax() {
-		return warnMinutesBeforeMax;
-	}
-
 	public void setMeetingExpireWhenLastUserLeftInMinutes(Integer value) {
-		meetingExpireWhenLastUserLeftInMinutes = value;
-	}
-
-	public Integer getmeetingExpireWhenLastUserLeftInMinutes() {
-		return meetingExpireWhenLastUserLeftInMinutes;
+        defaultMeetingExpireWhenLastUserLeftInMinutes = value;
 	}
 
 	public void setMeetingExpireIfNoUserJoinedInMinutes(Integer value) {
-		meetingExpireIfNoUserJoinedInMinutes = value;
+        defaultMeetingExpireIfNoUserJoinedInMinutes = value;
 	}
-	
+
 	public Integer getUserInactivityInspectTimerInMinutes() {
         return userInactivityInspectTimerInMinutes;
     }
@@ -967,7 +1270,7 @@ public class ParamsProcessorUtil {
     public void setUserInactivityInspectTimerInMinutes(Integer userInactivityInspectTimerInMinutes) {
         this.userInactivityInspectTimerInMinutes = userInactivityInspectTimerInMinutes;
     }
-    
+
     public Integer getUserInactivityThresholdInMinutes() {
         return userInactivityThresholdInMinutes;
     }
@@ -1000,6 +1303,25 @@ public class ParamsProcessorUtil {
 		return defaultMuteOnStart;
 	}
 
+	public void setDefaultKeepEvents(Boolean mke) {
+		defaultKeepEvents = mke;
+	}
+
+	public void setAllowModsToUnmuteUsers(Boolean value) {
+		defaultAllowModsToUnmuteUsers = value;
+	}
+
+	public Boolean getAllowModsToUnmuteUsers() {
+		return defaultAllowModsToUnmuteUsers;
+	}
+
+  public void setAllowModsToEjectCameras(Boolean value) {
+    defaultAllowModsToEjectCameras = value;
+  }
+
+  public Boolean getAllowModsToEjectCameras() {
+    return defaultAllowModsToEjectCameras;
+  }
 
 	public List<String> decodeIds(String encodeid) {
 		ArrayList<String> ids=new ArrayList<>();
@@ -1008,7 +1330,7 @@ public class ParamsProcessorUtil {
 		} catch (UnsupportedEncodingException e) {
 			log.error("Couldn't decode the IDs");
 		}
-		
+
 		return ids;
 	}
 
@@ -1019,7 +1341,7 @@ public class ParamsProcessorUtil {
         }
         return internalMeetingIds;
     }
-	
+
     public Map<String, String> getUserCustomData(Map<String, String> params) {
         Map<String, String> resp = new HashMap<>();
 
@@ -1055,5 +1377,97 @@ public class ParamsProcessorUtil {
 
         return filters;
     }
+
+	public void setBreakoutRoomsEnabled(Boolean breakoutRoomsEnabled) {
+		this.defaultBreakoutRoomsEnabled = breakoutRoomsEnabled;
+	}
+
+	public void setBreakoutRoomsRecord(Boolean breakoutRoomsRecord) {
+		this.defaultBreakoutRoomsRecord = breakoutRoomsRecord;
+	}
+
+	public void setBreakoutRoomsPrivateChatEnabled(Boolean breakoutRoomsPrivateChatEnabled) {
+		this.defaultbreakoutRoomsPrivateChatEnabled = breakoutRoomsPrivateChatEnabled;
+	}
+
+	public void setLockSettingsDisableCam(Boolean lockSettingsDisableCam) {
+		this.defaultLockSettingsDisableCam = lockSettingsDisableCam;
+	}
+
+	public void setLockSettingsDisableMic(Boolean lockSettingsDisableMic) {
+		this.defaultLockSettingsDisableMic = lockSettingsDisableMic;
+	}
+
+	public void setLockSettingsDisablePrivateChat(Boolean lockSettingsDisablePrivateChat) {
+		this.defaultLockSettingsDisablePrivateChat = lockSettingsDisablePrivateChat;
+	}
+
+	public void setLockSettingsDisablePublicChat(Boolean lockSettingsDisablePublicChat) {
+		this.defaultLockSettingsDisablePublicChat = lockSettingsDisablePublicChat;
+	}
+
+	public void setLockSettingsDisableNotes(Boolean lockSettingsDisableNotes) {
+		this.defaultLockSettingsDisableNotes = lockSettingsDisableNotes;
+	}
+
+	public void setLockSettingsHideUserList(Boolean lockSettingsHideUserList) {
+		this.defaultLockSettingsHideUserList = lockSettingsHideUserList;
+	}
+
+	public void setLockSettingsLockedLayout(Boolean lockSettingsLockedLayout) {
+		this.defaultLockSettingsLockedLayout = lockSettingsLockedLayout;
+	}
+
+	public void setLockSettingsLockOnJoin(Boolean lockSettingsLockOnJoin) {
+		this.defaultLockSettingsLockOnJoin = lockSettingsLockOnJoin;
+	}
+
+	public void setLockSettingsLockOnJoinConfigurable(Boolean lockSettingsLockOnJoinConfigurable) {
+		this.defaultLockSettingsLockOnJoinConfigurable = lockSettingsLockOnJoinConfigurable;
+	}
+
+	public void setLockSettingsHideViewersCursor(Boolean lockSettingsHideViewersCursor) {
+		this.defaultLockSettingsHideViewersCursor = lockSettingsHideViewersCursor;
+	}
+
+	public void setAllowDuplicateExtUserid(Boolean allow) {
+		this.defaultAllowDuplicateExtUserid = allow;
+	}
+
+    public void setMaxUserConcurrentAccesses(Integer maxUserConcurrentAccesses) {
+		this.maxUserConcurrentAccesses = maxUserConcurrentAccesses;
+	}
+
+	public void setEndWhenNoModerator(Boolean val) {
+		this.defaultEndWhenNoModerator = val;
+	}
+
+  public void setEndWhenNoModeratorDelayInMinutes(Integer value) {
+      this.defaultEndWhenNoModeratorDelayInMinutes = value;
+  }
+
+  public void setDisabledFeatures(String disabledFeatures) {
+        this.defaultDisabledFeatures = disabledFeatures;
+    }
+
+  public void setNotifyRecordingIsOn(Boolean notifyRecordingIsOn) {
+      this.defaultNotifyRecordingIsOn = notifyRecordingIsOn;
+  }
+
+  public void setPresentationUploadExternalDescription(String presentationUploadExternalDescription) {
+    this.defaultPresentationUploadExternalDescription = presentationUploadExternalDescription;
+  }
+
+  public void setPresentationUploadExternalUrl(String presentationUploadExternalUrl) {
+    this.defaultPresentationUploadExternalUrl = presentationUploadExternalUrl;
+  }
+
+  public void setBbbVersion(String version) {
+      this.bbbVersion = this.allowRevealOfBBBVersion ? version : "";
+  }
+
+  public void setAllowRevealOfBBBVersion(Boolean allowVersion) {
+    this.allowRevealOfBBBVersion = allowVersion;
+  }
 
 }

@@ -1,11 +1,16 @@
-import SessionStorage from '/imports/ui/services/storage/session';
 import Presentations from '/imports/api/presentations';
 import { isVideoBroadcasting } from '/imports/ui/components/screenshare/service';
-import Auth from '/imports/ui/services/auth';
-import Users from '/imports/api/users';
+import { getVideoUrl } from '/imports/ui/components/external-video-player/service';
 import Settings from '/imports/ui/services/settings';
-import VideoService from '/imports/ui/components/video-provider/service';
-import PollingService from '/imports/ui/components/polling/service';
+import getFromUserSettings from '/imports/ui/services/users-settings';
+import { isExternalVideoEnabled, isScreenSharingEnabled } from '/imports/ui/services/features';
+import { ACTIONS } from '../layout/enums';
+import UserService from '/imports/ui/components/user-list/service';
+import NotesService from '/imports/ui/components/notes/service';
+
+const LAYOUT_CONFIG = Meteor.settings.public.layout;
+const KURENTO_CONFIG = Meteor.settings.public.kurento;
+const PRESENTATION_CONFIG = Meteor.settings.public.presentation;
 
 const getPresentationInfo = () => {
   const currentPresentation = Presentations.findOne({
@@ -17,53 +22,41 @@ const getPresentationInfo = () => {
   };
 };
 
-const isUserPresenter = () => Users.findOne({ userId: Auth.userID }).presenter;
-
 function shouldShowWhiteboard() {
   return true;
 }
 
 function shouldShowScreenshare() {
-  return isVideoBroadcasting() && Meteor.settings.public.kurento.enableScreensharing;
+  const { viewScreenshare } = Settings.dataSaving;
+  return isScreenSharingEnabled() && (viewScreenshare || UserService.isUserPresenter()) && isVideoBroadcasting();
+}
+
+function shouldShowExternalVideo() {
+  return isExternalVideoEnabled() && getVideoUrl();
+}
+
+function shouldShowSharedNotes() {
+  return NotesService.isSharedNotesPinned();
 }
 
 function shouldShowOverlay() {
-  return Meteor.settings.public.kurento.enableVideo;
+  return getFromUserSettings('bbb_enable_video', KURENTO_CONFIG.enableVideo);
 }
 
-const swapLayout = {
-  value: false,
-  tracker: new Tracker.Dependency(),
-};
-
-const toggleSwapLayout = () => {
-  swapLayout.value = !swapLayout.value;
-  swapLayout.tracker.changed();
-};
-
-export const shouldEnableSwapLayout = () => {
-  const { viewParticipantsWebcams } = Settings.dataSaving;
-  const usersVideo = VideoService.getAllUsersVideo();
-  const poll = PollingService.mapPolls();
-
-  return usersVideo.length > 0 // prevent swap without any webcams
-  && viewParticipantsWebcams // prevent swap when dataSaving for webcams is enabled
-  && !poll.pollExists; // prevent swap when there is a poll running
-};
-
-export const getSwapLayout = () => {
-  swapLayout.tracker.depend();
-  const metaAutoSwapLayout = SessionStorage.getItem('metadata').html5autoswaplayout || false;
-  return metaAutoSwapLayout || (swapLayout.value && shouldEnableSwapLayout());
+const setPresentationIsOpen = (layoutContextDispatch, value) => {
+  layoutContextDispatch({
+    type: ACTIONS.SET_PRESENTATION_IS_OPEN,
+    value,
+  });
 };
 
 export default {
   getPresentationInfo,
   shouldShowWhiteboard,
   shouldShowScreenshare,
+  shouldShowExternalVideo,
   shouldShowOverlay,
-  isUserPresenter,
   isVideoBroadcasting,
-  toggleSwapLayout,
-  shouldEnableSwapLayout,
+  setPresentationIsOpen,
+  shouldShowSharedNotes,
 };

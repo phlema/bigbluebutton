@@ -1,15 +1,14 @@
 import React, { Component } from 'react';
 import PropTypes from 'prop-types';
-import cx from 'classnames';
-import { defineMessages, injectIntl, intlShape } from 'react-intl';
+import { defineMessages, injectIntl } from 'react-intl';
 import _ from 'lodash';
-import { styles } from '../styles';
+import Styled from './styles';
 import ToolbarSubmenuItem from '../toolbar-submenu-item/component';
 
 const intlMessages = defineMessages({
-  toolPointer: {
-    id: 'app.whiteboard.toolbar.tools.pointer',
-    description: 'Tool submenu pointer item',
+  toolHand: {
+    id: 'app.whiteboard.toolbar.tools.hand',
+    description: 'Tool submenu hand item',
   },
   toolPencil: {
     id: 'app.whiteboard.toolbar.tools.pencil',
@@ -89,63 +88,124 @@ class ToolbarSubmenu extends Component {
   static getCustomIcon(type, obj) {
     if (type === 'color') {
       return (
-        <svg className={styles.customSvgIcon}>
-          <rect x="20%" y="20%" width="60%" height="60%" fill={obj.value} />
-        </svg>
+        <Styled.CustomSvgIcon>
+          <rect x="20%" y="20%" width="60%" height="60%" fill={obj.value} id="colorPicker"/>
+        </Styled.CustomSvgIcon>
       );
-    } else if (type === 'thickness') {
+    } if (type === 'thickness') {
       return (
-        <svg className={styles.customSvgIcon}>
+        <Styled.CustomSvgIcon>
           <circle cx="50%" cy="50%" r={obj.value} />
-        </svg>
+        </Styled.CustomSvgIcon>
       );
-    } else if (type === 'font-size') {
+    } if (type === 'font-size') {
       return (
-        <p className={styles.textThickness} style={{ fontSize: obj.value }}>
+        <Styled.TextThickness style={{ fontSize: obj.value <= 32 ? obj.value : 32 }}>
           Aa
-        </p>
+        </Styled.TextThickness>
       );
     }
 
     return null;
   }
 
-  static getWrapperClassNames(type) {
-    if (type === 'color') {
-      return cx(styles.colorList, styles.toolbarList);
-    } else if (type === 'thickness') {
-      return cx(styles.thicknessList, styles.toolbarList);
-    } else if (type === 'font-size') {
-      return cx(styles.fontSizeList, styles.toolbarList);
-    } else if (type === 'annotations') {
-      return cx(styles.annotationList, styles.toolbarList);
-    }
-
-    return null;
-  }
   constructor() {
     super();
 
     this.handleMouseEnter = this.handleMouseEnter.bind(this);
     this.handleMouseLeave = this.handleMouseLeave.bind(this);
+    this.handleMouseDown = this.handleMouseDown.bind(this);
     this.onItemClick = this.onItemClick.bind(this);
+    this.findCurrentElement = this.findCurrentElement.bind(this);
   }
 
-  onItemClick(objectToReturn) {
-    if (this.props.onItemClick) {
-      this.props.onItemClick(objectToReturn);
+  componentDidMount() {
+    document.addEventListener('mousedown', this.handleMouseDown);
+    document.addEventListener('touchstart', this.handleMouseDown);
+    const { handleMouseEnter, objectSelected, type } = this.props;
+
+    if (handleMouseEnter) {
+      handleMouseEnter();
+
+      if (type === 'annotations') {
+        this.submenuItems.childNodes.forEach((element) => {
+          const node = this.findCurrentElement(element.childNodes[0]);
+          const classname = node.getAttribute('class');
+          if (classname) {
+            const name = classname.split('-');
+            if (name[name.length - 1] === objectSelected.icon) {
+              element.firstChild.focus();
+            }
+          }
+        });
+      }
+
+      if (type === 'thickness') {
+        this.submenuItems.childNodes.forEach((element) => {
+          const node = this.findCurrentElement(element.childNodes[0]);
+          const radius = node.getAttribute('r');
+          if (radius === objectSelected.value.toString()) {
+            element.firstChild.focus();
+          }
+        });
+      }
+
+      if (type === 'color') {
+        this.submenuItems.childNodes.forEach((element) => {
+          const node = this.findCurrentElement(element.childNodes[0]);
+          const fill = node.getAttribute('fill');
+          if (fill === objectSelected.value) {
+            element.firstChild.focus();
+          }
+        });
+      }
     }
   }
 
+  componentWillUnmount() {
+    document.removeEventListener('mousedown', this.handleMouseDown);
+    document.removeEventListener('touchstart', this.handleMouseDown);
+  }
+
+  onItemClick(objectToReturn) {
+    const { onItemClick } = this.props;
+
+    if (onItemClick) {
+      onItemClick(objectToReturn);
+    }
+  }
+
+  findCurrentElement(node) {
+    if (node.nodeName === 'BUTTON') return this.findCurrentElement(node.childNodes[0]);
+    if (node.nodeName === 'svg') return node.firstChild;
+    return node;
+  }
+
+  handleMouseDown(e) {
+    const { handleClose } = this.props;
+    if (e.path === undefined) return false;
+    for (let i = 0; i < e.path.length; i += 1) {
+      const p = e.path[i];
+      if (p && p.className && typeof p.className === 'string') {
+        if (p.className.search('tool') !== -1) {
+          return false;
+        }
+      }
+    }
+    return handleClose();
+  }
+
   handleMouseEnter() {
-    if (this.props.handleMouseEnter) {
-      this.props.handleMouseEnter();
+    const { handleMouseEnter } = this.props;
+    if (handleMouseEnter) {
+      handleMouseEnter();
     }
   }
 
   handleMouseLeave() {
-    if (this.props.handleMouseLeave) {
-      this.props.handleMouseLeave();
+    const { handleMouseLeave } = this.props;
+    if (handleMouseLeave) {
+      handleMouseLeave();
     }
   }
 
@@ -178,27 +238,26 @@ class ToolbarSubmenu extends Component {
     } = this.props;
 
     return (
-      <div
+      <Styled.Wrapper
         onMouseEnter={this.handleMouseEnter}
         onMouseLeave={this.handleMouseLeave}
-        className={ToolbarSubmenu.getWrapperClassNames(type)}
+        type={type}
+        ref={(node) => { this.submenuItems = node; }}
+        data-test="toolbarToolsList"
       >
-        {objectsToRender ? objectsToRender.map(obj =>
-          (
-            <ToolbarSubmenuItem
-              label={this.formatSubmenuLabel(type, obj)}
-              icon={!customIcon ? obj.icon : null}
-              customIcon={customIcon ? ToolbarSubmenu.getCustomIcon(type, obj) : null}
-              onItemClick={this.onItemClick}
-              objectToReturn={obj}
-              className={cx(
-                styles.toolbarListButton,
-                objectSelected.value === obj.value ? styles.selectedListButton : '',
-              )}
-              key={obj.value}
-            />
-          )) : null}
-      </div>
+        {objectsToRender ? objectsToRender.map(obj => (
+          <ToolbarSubmenuItem
+            label={this.formatSubmenuLabel(type, obj)}
+            icon={!customIcon ? obj.icon : null}
+            customIcon={customIcon ? ToolbarSubmenu.getCustomIcon(type, obj) : null}
+            onItemClick={this.onItemClick}
+            objectToReturn={obj}
+            toolbarActive={objectSelected.value === obj.value}
+            key={obj.value}
+            data-test={`${obj.value}Tool`}
+          />
+        )) : null}
+      </Styled.Wrapper>
     );
   }
 }
@@ -232,11 +291,8 @@ ToolbarSubmenu.propTypes = {
       icon: PropTypes.string.isRequired,
     }),
   ]).isRequired,
-  label: PropTypes.string.isRequired,
   customIcon: PropTypes.bool.isRequired,
-
-  intl: intlShape.isRequired,
-
+  intl: PropTypes.object.isRequired,
 };
 
 export default injectIntl(ToolbarSubmenu);

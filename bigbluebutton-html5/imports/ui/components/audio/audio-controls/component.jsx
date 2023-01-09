@@ -1,9 +1,12 @@
-import React from 'react';
+import React, { PureComponent } from 'react';
 import PropTypes from 'prop-types';
-import cx from 'classnames';
-import { defineMessages, intlShape, injectIntl } from 'react-intl';
-import Button from '/imports/ui/components/button/component';
-import { styles } from './styles';
+import { defineMessages, injectIntl } from 'react-intl';
+import deviceInfo from '/imports/utils/deviceInfo';
+import withShortcutHelper from '/imports/ui/components/shortcut-help/service';
+import InputStreamLiveSelectorContainer from './input-stream-live-selector/container';
+import MutedAlert from '/imports/ui/components/muted-alert/component';
+import Styled from './styles';
+import Button from '/imports/ui/components/common/button/component';
 
 const intlMessages = defineMessages({
   joinAudio: {
@@ -25,69 +28,128 @@ const intlMessages = defineMessages({
 });
 
 const propTypes = {
+  shortcuts: PropTypes.objectOf(PropTypes.string).isRequired,
   handleToggleMuteMicrophone: PropTypes.func.isRequired,
   handleJoinAudio: PropTypes.func.isRequired,
   handleLeaveAudio: PropTypes.func.isRequired,
   disable: PropTypes.bool.isRequired,
-  unmute: PropTypes.bool,
-  mute: PropTypes.bool.isRequired,
-  join: PropTypes.bool.isRequired,
-  intl: intlShape.isRequired,
-  glow: PropTypes.bool,
+  muted: PropTypes.bool.isRequired,
+  showMute: PropTypes.bool.isRequired,
+  inAudio: PropTypes.bool.isRequired,
+  listenOnly: PropTypes.bool.isRequired,
+  intl: PropTypes.shape({
+    formatMessage: PropTypes.func.isRequired,
+  }).isRequired,
+  talking: PropTypes.bool.isRequired,
 };
 
-const defaultProps = {
-  glow: false,
-  unmute: false,
-};
+class AudioControls extends PureComponent {
+  constructor(props) {
+    super(props);
+    this.renderButtonsAndStreamSelector = this.renderButtonsAndStreamSelector.bind(this);
+    this.renderJoinLeaveButton = this.renderJoinLeaveButton.bind(this);
+  }
 
-const SHORTCUTS_CONFIG = Meteor.settings.public.app.shortcuts;
-const JOIN_AUDIO_AK = SHORTCUTS_CONFIG.joinAudio.accesskey;
-const LEAVE_AUDIO_AK = SHORTCUTS_CONFIG.leaveAudio.accesskey;
-const MUTE_UNMUTE_AK = SHORTCUTS_CONFIG.toggleMute.accesskey;
+  renderJoinButton() {
+    const {
+      handleJoinAudio,
+      disable,
+      intl,
+      shortcuts,
+    } = this.props;
 
-const AudioControls = ({
-  handleToggleMuteMicrophone,
-  handleJoinAudio,
-  handleLeaveAudio,
-  mute,
-  unmute,
-  disable,
-  glow,
-  join,
-  intl,
-}) => (
-  <span className={styles.container}>
-    {mute ?
+    return (
       <Button
-        className={glow ? cx(styles.button, styles.glow) : styles.button}
-        onClick={handleToggleMuteMicrophone}
+        onClick={handleJoinAudio}
         disabled={disable}
         hideLabel
-        label={unmute ? intl.formatMessage(intlMessages.unmuteAudio) : intl.formatMessage(intlMessages.muteAudio)}
-        aria-label={unmute ? intl.formatMessage(intlMessages.unmuteAudio) : intl.formatMessage(intlMessages.muteAudio)}
-        color="primary"
-        icon={unmute ? 'mute' : 'unmute'}
+        aria-label={intl.formatMessage(intlMessages.joinAudio)}
+        label={intl.formatMessage(intlMessages.joinAudio)}
+        data-test="joinAudio"
+        color="default"
+        ghost
+        icon="no_audio"
         size="lg"
         circle
-        accessKey={MUTE_UNMUTE_AK}
-      /> : null}
-    <Button
-      className={styles.button}
-      onClick={join ? handleLeaveAudio : handleJoinAudio}
-      disabled={disable}
-      hideLabel
-      aria-label={join ? intl.formatMessage(intlMessages.leaveAudio) : intl.formatMessage(intlMessages.joinAudio)}
-      label={join ? intl.formatMessage(intlMessages.leaveAudio) : intl.formatMessage(intlMessages.joinAudio)}
-      color={join ? 'danger' : 'primary'}
-      icon={join ? 'audio_off' : 'audio_on'}
-      size="lg"
-      circle
-      accessKey={join ? LEAVE_AUDIO_AK : JOIN_AUDIO_AK}
-    />
-  </span>);
+        accessKey={shortcuts.joinaudio}
+      />
+    );
+  }
+
+  renderButtonsAndStreamSelector(_enableDynamicDeviceSelection) {
+    const {
+      handleLeaveAudio, handleToggleMuteMicrophone, muted, disable, talking,
+    } = this.props;
+
+    const { isMobile } = deviceInfo;
+
+    return (
+      <InputStreamLiveSelectorContainer {...{
+        handleLeaveAudio,
+        handleToggleMuteMicrophone,
+        muted,
+        disable,
+        talking,
+        isMobile,
+        _enableDynamicDeviceSelection,
+      }}
+      />
+    );
+  }
+
+  renderJoinLeaveButton() {
+    const {
+      inAudio,
+    } = this.props;
+
+    const { isMobile } = deviceInfo;
+
+    let { enableDynamicAudioDeviceSelection } = Meteor.settings.public.app;
+
+    if (typeof enableDynamicAudioDeviceSelection === 'undefined') {
+      enableDynamicAudioDeviceSelection = true;
+    }
+
+    const _enableDynamicDeviceSelection = enableDynamicAudioDeviceSelection && !isMobile;
+
+    if (inAudio) {
+      return this.renderButtonsAndStreamSelector(_enableDynamicDeviceSelection);
+    }
+
+    return this.renderJoinButton();
+  }
+
+  render() {
+    const {
+      showMute,
+      muted,
+      isVoiceUser,
+      listenOnly,
+      inputStream,
+      isViewer,
+      isPresenter,
+    } = this.props;
+
+    const MUTE_ALERT_CONFIG = Meteor.settings.public.app.mutedAlert;
+    const { enabled: muteAlertEnabled } = MUTE_ALERT_CONFIG;
+
+    return (
+      <Styled.Container>
+        {isVoiceUser && inputStream && muteAlertEnabled && !listenOnly && muted && showMute ? (
+          <MutedAlert {...{
+            muted, inputStream, isViewer, isPresenter,
+          }}
+          />
+        ) : null}
+        {
+          this.renderJoinLeaveButton()
+        }
+      </Styled.Container>
+    );
+  }
+}
 
 AudioControls.propTypes = propTypes;
-AudioControls.defaultProps = defaultProps;
 
-export default injectIntl(AudioControls);
+export default withShortcutHelper(injectIntl(AudioControls), ['joinAudio',
+  'leaveAudio', 'toggleMute']);

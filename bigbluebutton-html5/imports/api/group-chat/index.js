@@ -1,6 +1,10 @@
 import { Meteor } from 'meteor/meteor';
 
-const GroupChat = new Mongo.Collection('group-chat');
+const collectionOptions = Meteor.isClient ? {
+  connection: null,
+} : {};
+
+const GroupChat = new Mongo.Collection('group-chat', collectionOptions);
 
 if (Meteor.isServer) {
   GroupChat._ensureIndex({
@@ -10,7 +14,7 @@ if (Meteor.isServer) {
 
 export default GroupChat;
 
-export const CHAT_ACCESS = {
+const CHAT_ACCESS = {
   PUBLIC: 'PUBLIC_ACCESS',
   PRIVATE: 'PRIVATE_ACCESS',
 };

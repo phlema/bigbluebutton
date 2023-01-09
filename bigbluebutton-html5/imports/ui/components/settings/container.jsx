@@ -1,28 +1,35 @@
 import React from 'react';
 import { withTracker } from 'meteor/react-meteor-data';
-import { withRouter } from 'react-router';
 import SettingsService from '/imports/ui/services/settings';
 import Settings from './component';
+import { layoutDispatch } from '../layout/context';
+import { isScreenSharingEnabled } from '/imports/ui/services/features';
 
 import {
-  getClosedCaptionLocales,
   getUserRoles,
+  isPresenter,
+  showGuestNotification,
   updateSettings,
   getAvailableLocales,
 } from './service';
 
-const SettingsContainer = props => (
-  <Settings {...props} />
-);
+const SettingsContainer = (props) => {
+  const layoutContextDispatch = layoutDispatch();
 
-export default withRouter(withTracker(() => ({
+  return <Settings {...props} layoutContextDispatch={layoutContextDispatch} />;
+};
+
+export default withTracker((props) => ({
+  ...props,
   audio: SettingsService.audio,
   dataSaving: SettingsService.dataSaving,
   application: SettingsService.application,
-  cc: SettingsService.cc,
-  participants: SettingsService.participants,
   updateSettings,
-  locales: getClosedCaptionLocales(),
   availableLocales: getAvailableLocales(),
+  isPresenter: isPresenter(),
   isModerator: getUserRoles() === 'MODERATOR',
-}))(SettingsContainer));
+  showGuestNotification: showGuestNotification(),
+  showToggleLabel: false,
+  isScreenSharingEnabled: isScreenSharingEnabled(),
+  isVideoEnabled: Meteor.settings.public.kurento.enableVideo,
+}))(SettingsContainer);

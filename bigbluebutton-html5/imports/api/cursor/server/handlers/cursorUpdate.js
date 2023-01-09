@@ -1,38 +1,45 @@
 import { check } from 'meteor/check';
-import { CursorStreamer } from '/imports/api/cursor';
+import CursorStreamer from '/imports/api/cursor/server/streamer';
+import Logger from '/imports/startup/server/logger';
+import _ from 'lodash';
 
 const CURSOR_PROCCESS_INTERVAL = 30;
 
-let cursorQueue = [];
-let cursorRecieverIsRunning = false;
+const cursorQueue = {};
 
-const proccess = () => {
-  if (!Object.keys(cursorQueue).length) {
-    cursorRecieverIsRunning = false;
-    return;
+const proccess = _.throttle(() => {
+  try {
+    Object.keys(cursorQueue).forEach((meetingId) => {
+      try {
+        const cursors = [];
+        for (let userId in cursorQueue[meetingId]){
+          cursorQueue[meetingId][userId].userId = userId;
+          cursors.push(cursorQueue[meetingId][userId]);
+        }
+        delete cursorQueue[meetingId];
+        CursorStreamer(meetingId).emit('message', { meetingId, cursors });
+      } catch (error) {
+        Logger.error(`Error while trying to send cursor streamer data for meeting ${meetingId}. ${error}`);
+      }
+    });
+  } catch (error) {
+    Logger.error(`Error while processing cursor queue. ${error}`);
   }
-  cursorRecieverIsRunning = true;
-  Object.keys(cursorQueue).forEach(meetingId => {
-    CursorStreamer.emit('message', { meetingId, cursors: cursorQueue[meetingId] });
-  });
-  cursorQueue = {};
-
-  Meteor.setTimeout(proccess, CURSOR_PROCCESS_INTERVAL);
-};
+}, CURSOR_PROCCESS_INTERVAL);
 
 export default function handleCursorUpdate({ header, body }, meetingId) {
-  const userId = header.userId;
-  const x = body.xPercent;
-  const y = body.yPercent;
+  const { userId } = header;
+  check(body, Object);
 
+  check(meetingId, String);
   check(userId, String);
-  check(x, Number);
-  check(y, Number);
 
-  if(!cursorQueue.hasOwnProperty(meetingId)) {
+  if (!cursorQueue[meetingId]) {
     cursorQueue[meetingId] = {};
   }
+
   // overwrite since we dont care about the other positions
-  cursorQueue[meetingId][userId] = { x, y };
-  if (!cursorRecieverIsRunning) proccess();
+  cursorQueue[meetingId][userId] = body;
+
+  proccess();
 }

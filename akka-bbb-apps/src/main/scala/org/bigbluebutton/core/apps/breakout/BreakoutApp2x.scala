@@ -6,15 +6,21 @@ import scala.collection.SortedSet
 import org.apache.commons.codec.digest.DigestUtils
 
 trait BreakoutApp2x extends BreakoutRoomCreatedMsgHdlr
-    with BreakoutRoomsListMsgHdlr
-    with BreakoutRoomUsersUpdateMsgHdlr
-    with CreateBreakoutRoomsCmdMsgHdlr
-    with EndAllBreakoutRoomsMsgHdlr
-    with RequestBreakoutJoinURLReqMsgHdlr
-    with SendBreakoutUsersUpdateMsgHdlr
-    with TransferUserToMeetingRequestHdlr
-    with EndBreakoutRoomInternalMsgHdlr
-    with BreakoutRoomEndedInternalMsgHdlr {
+  with BreakoutRoomsListMsgHdlr
+  with BreakoutRoomUsersUpdateMsgHdlr
+  with CreateBreakoutRoomsCmdMsgHdlr
+  with EndAllBreakoutRoomsMsgHdlr
+  with UpdateBreakoutRoomsTimeMsgHdlr
+  with ChangeUserBreakoutReqMsgHdlr
+  with SendMessageToAllBreakoutRoomsMsgHdlr
+  with SendMessageToBreakoutRoomInternalMsgHdlr
+  with RequestBreakoutJoinURLReqMsgHdlr
+  with SendBreakoutUsersUpdateMsgHdlr
+  with TransferUserToMeetingRequestHdlr
+  with EndBreakoutRoomInternalMsgHdlr
+  with UpdateBreakoutRoomTimeInternalMsgHdlr
+  with EjectUserFromBreakoutInternalMsgHdlr
+  with BreakoutRoomEndedInternalMsgHdlr {
 
   this: MeetingActor =>
 

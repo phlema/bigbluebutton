@@ -19,17 +19,16 @@ export default function createDummyUser(meetingId, userId, authToken) {
     authToken,
     clientType: 'HTML5',
     validated: null,
+    left: false,
   };
 
-  const cb = (err, numChanged) => {
-    if (err) {
-      Logger.error(`Creating dummy user to collection: ${err}`);
-      return;
-    }
-    if (numChanged) {
+  try {
+    const insertedId = Users.insert(doc);
+
+    if (insertedId) {
       Logger.info(`Created dummy user id=${userId} token=${authToken} meeting=${meetingId}`);
     }
-  };
-
-  return Users.insert(doc, cb);
+  } catch (err) {
+    Logger.error(`Creating dummy user to collection: ${err}`);
+  }
 }

@@ -1,7 +1,5 @@
-  # Set encoding to utf-8
-# encoding: UTF-8
+# frozen_string_literal: true
 
-#
 # BigBlueButton open source conferencing system - http://www.bigbluebutton.org/
 #
 # Copyright (c) 2017 BigBlueButton Inc. and by respective authors (see below).
@@ -18,8 +16,6 @@
 #
 # You should have received a copy of the GNU Lesser General Public License along
 # with BigBlueButton; if not, see <http://www.gnu.org/licenses/>.
-#
-
 
 require 'rubygems'
 require 'redis'
@@ -27,10 +23,11 @@ require 'builder'
 require 'yaml'
 require 'fileutils'
 
-module BigBlueButton  
-  $bbb_props = YAML::load(File.open('../../core/scripts/bigbluebutton.yml'))
+module BigBlueButton
+  $bbb_props = YAML::load(File.open(File.expand_path('../../../scripts/bigbluebutton.yml', __FILE__)))
   $recording_dir = $bbb_props['recording_dir']
   $raw_recording_dir = "#{$recording_dir}/raw"
+  $store_recording_status = $bbb_props['store_recording_status']
 
   # Class to wrap Redis so we can mock
   # for testing
@@ -43,23 +40,23 @@ module BigBlueButton
         @redis = Redis.new(:host => @host, :port => @port, :password => @password)
       end
     end
-    
-    def connect      
-      @redis.client.connect    
+
+    def connect
+      @redis.client.connect
     end
-    
+
     def disconnect
       @redis.client.disconnect
     end
-    
+
     def connected?
       @redis.client.connected?
     end
-    
+
     def metadata_for(meeting_id)
       @redis.hgetall("meeting:info:#{meeting_id}")
     end
-    
+
     def has_breakout_metadata_for(meeting_id)
       @redis.exists("meeting:breakout:#{meeting_id}")
     end
@@ -67,7 +64,7 @@ module BigBlueButton
     def breakout_metadata_for(meeting_id)
       @redis.hgetall("meeting:breakout:#{meeting_id}")
     end
-    
+
     def has_breakout_rooms_for(meeting_id)
       @redis.exists("meeting:breakout:rooms:#{meeting_id}")
     end
@@ -79,11 +76,11 @@ module BigBlueButton
     def num_events_for(meeting_id)
       @redis.llen("meeting:#{meeting_id}:recordings")
     end
-    
+
     def events_for(meeting_id)
       @redis.lrange("meeting:#{meeting_id}:recordings", 0, num_events_for(meeting_id))
     end
-    
+
     def event_info_for(meeting_id, event)
       @redis.hgetall("recording:#{meeting_id}:#{event}")
     end
@@ -139,6 +136,7 @@ module BigBlueButton
     end
 
     RECORDINGS_CHANNEL = "bigbluebutton:from-rap"
+    RAP_STATUS_LIST = "bigbluebutton:rap:status"
 
     def put_message(message_type, meeting_id, additional_payload = {})
       events_xml = "#{$raw_recording_dir}/#{meeting_id}/events.xml"
@@ -153,12 +151,21 @@ module BigBlueButton
         "meeting_id" => meeting_id
       })
       @redis.publish RECORDINGS_CHANNEL, msg.to_json
+
+      if $store_recording_status
+        @redis.lpush RAP_STATUS_LIST, msg.to_json
+      end
+
     end
 
     def put_message_workflow(message_type, workflow, meeting_id, additional_payload = {})
       put_message message_type, meeting_id, additional_payload.merge({
         "workflow" => workflow
       })
+    end
+
+    def put_archive_norecord(meeting_id, additional_payload = {})
+      put_message "archive_norecord", meeting_id, additional_payload
     end
 
     def put_archive_started(meeting_id, additional_payload = {})
@@ -225,13 +232,24 @@ module BigBlueButton
     MEETINGID = 'meetingId'
     MEETINGNAME = 'meetingName'
     ISBREAKOUT = 'isBreakout'
-    
+
     def initialize(redis)
       @redis = redis
     end
 
+    # Apply a cleanup that removes certain ranges of special
+    # control characters from user-provided text
+    # Based on https://www.w3.org/TR/xml/#charsets
+    # Remove all Unicode characters not valid in XML, and also remove
+    # discouraged characters (includes control characters) in the U+0000-U+FFFF
+    # range (the higher values are just undefined characters, and are unlikely
+    # to cause issues).
+    def strip_control_chars(str)
+      str.scrub.tr("\x00-\x08\x0B\x0C\x0E-\x1F\x7F\uFDD0-\uFDEF\uFFFE\uFFFF", '')
+    end
+
     def store_events(meeting_id, events_file, break_timestamp)
-      version = YAML::load(File.open('../../core/scripts/bigbluebutton.yml'))["bbb_version"]
+      version = BigBlueButton.read_props["bbb_version"]
 
       if File.exist?(events_file)
         io = File.open(events_file, 'rb')
@@ -254,7 +272,7 @@ module BigBlueButton
       end
 
       meeting_metadata = @redis.metadata_for(meeting_id)
-      return if meeting_metadata.nil?
+      return if meeting_metadata.nil? || meeting_metadata.empty?
 
       # Fill in/update the top-level meeting element
       if meeting.nil?
@@ -262,9 +280,9 @@ module BigBlueButton
         recording << meeting
       end
       meeting['id'] = meeting_id
-      meeting['externalId'] = meeting_metadata[MEETINGID]
-      meeting['name'] = meeting_metadata[MEETINGNAME]
-      meeting['breakout'] = meeting_metadata[ISBREAKOUT]
+      meeting['externalId'] = strip_control_chars(meeting_metadata[MEETINGID])
+      meeting['name'] = strip_control_chars(meeting_metadata[MEETINGNAME])
+      meeting['breakout'] = strip_control_chars(meeting_metadata[ISBREAKOUT])
 
       # Fill in/update the top-level metadata element
       if metadata.nil?
@@ -272,7 +290,7 @@ module BigBlueButton
         recording << metadata
       end
       meeting_metadata.each do |k, v|
-        metadata[k] = v
+        metadata[strip_control_chars(k)] = strip_control_chars(v)
       end
 
       # Fill in/update the top-level breakout element
@@ -283,7 +301,7 @@ module BigBlueButton
         end
         breakout_metadata = @redis.breakout_metadata_for(meeting_id)
         breakout_metadata.each do |k, v|
-          breakout[k] = v
+          breakout[strip_control_chars(k)] = strip_control_chars(v)
         end
       end
 
@@ -318,16 +336,26 @@ module BigBlueButton
               # The slidesInfo value is XML serialized info, just insert it
               # directly into the event
               event << v
-            elsif res[MODULE] == 'CHAT' and res[EVENTNAME] == 'PublicChatEvent' and k == 'message'
-              # Apply a cleanup that removes certain ranges of special
-              # characters from chat messages
-              event << events_doc.create_element(k, v.tr("\u0000-\u001f\u007f\u2028",''))
             else
-              event << events_doc.create_element(k, v)
+              event << events_doc.create_element(k, strip_control_chars(v))
             end
           end
         end
-        recording << event
+
+        # Handle out of order events - if this event has an earlier timestamp than the last event
+        # in the file, find the correct spot (it's usually no more than 1 or 2 off).
+        # Make sure not to change the relative order of two events with the same timestamp.
+        previous_event = recording.last_element_child
+        moved = 0
+        while previous_event.name == 'event' && previous_event['timestamp'].to_i > event['timestamp'].to_i
+          previous_event = previous_event.previous_element
+          moved += 1
+        end
+        if moved > 0
+          BigBlueButton.logger.info("Reordered event timestamp=#{res[TIMESTAMP]} module=#{res[MODULE]} " \
+                                    "eventname=#{res[EVENTNAME]} by #{moved} positions")
+        end
+        previous_event.add_next_sibling(event)
 
         # Stop reading events if we've reached the recording break for this
         # segment
@@ -336,6 +364,10 @@ module BigBlueButton
           break
         end
       end
+
+      # Optionally let the caller do some post-processing on the events before
+      # they're written
+      yield events_doc if block_given?
 
       # Write the events file. Write to a temp file then rename so other
       # scripts running concurrently don't see a partially written file.
@@ -346,27 +378,27 @@ module BigBlueButton
 
       # Once the events file has been written, we can delete this segment's
       # events from redis.
-      @redis.trim_events_for(meeting_id, last_index)
       msgs.each_with_index do |msg, i|
         @redis.delete_event_info_for(meeting_id, msg)
-        break if i >= 0 and i >= last_index
+        break if last_index >= 0 and i >= last_index
       end
+      @redis.trim_events_for(meeting_id, last_index)
 
     end
 
     def delete_events(meeting_id)
       meeting_metadata = @redis.metadata_for(meeting_id)
       if (meeting_metadata != nil)
-        msgs = @redis.events_for(meeting_id)                      
+        msgs = @redis.events_for(meeting_id)
         msgs.each do |msg|
-          @redis.delete_event_info_for(meeting_id, msg) 
+          @redis.delete_event_info_for(meeting_id, msg)
         end
         @redis.delete_events_for(meeting_id)
       end
-      @redis.delete_metadata_for(meeting_id) 
-      @redis.delete_breakout_metadata_for(meeting_id) 
+      @redis.delete_metadata_for(meeting_id)
+      @redis.delete_breakout_metadata_for(meeting_id)
       @redis.delete_breakout_rooms_for(meeting_id)
     end
-    
+
   end
 end

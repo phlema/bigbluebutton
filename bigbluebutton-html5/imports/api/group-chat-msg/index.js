@@ -1,19 +1,20 @@
 import { Meteor } from 'meteor/meteor';
 
-const GroupChat = new Mongo.Collection('group-chat-msg');
+const collectionOptions = Meteor.isClient ? {
+  connection: null,
+} : {};
+
+const GroupChatMsg = new Mongo.Collection('group-chat-msg');
+const UsersTyping = new Mongo.Collection('users-typing', collectionOptions);
 
 if (Meteor.isServer) {
-  GroupChat._ensureIndex({
-    meetingId: 1, chatId: 1, access: 1, users: 1,
-  });
+  GroupChatMsg._ensureIndex({ meetingId: 1, chatId: 1 });
+  UsersTyping._ensureIndex({ meetingId: 1, isTypingTo: 1 });
 }
 
-export default GroupChat;
+// As we store chat in context, skip adding to mini mongo
+if (Meteor.isClient) {
+  GroupChatMsg.onAdded = () => false;
+}
 
-export const CHAT_ACCESS = {
-  PUBLIC: 'PUBLIC_ACCESS',
-  PRIVATE: 'PRIVATE_ACCESS',
-};
-
-export const CHAT_ACCESS_PUBLIC = CHAT_ACCESS.PUBLIC;
-export const CHAT_ACCESS_PRIVATE = CHAT_ACCESS.PRIVATE;
+export { GroupChatMsg, UsersTyping };

@@ -1,46 +1,34 @@
 import React, { Component } from 'react';
-import { TransitionGroup, CSSTransition } from 'react-transition-group';
-import PropTypes from 'prop-types';
 import { defineMessages } from 'react-intl';
-import cx from 'classnames';
-import { styles } from '/imports/ui/components/user-list/user-list-content/styles';
-import UserListItem from './user-list-item/component';
+import PropTypes from 'prop-types';
+import Styled from './styles';
+import { findDOMNode } from 'react-dom';
+import {
+  AutoSizer,
+  CellMeasurer,
+  CellMeasurerCache,
+} from 'react-virtualized';
+import UserListItemContainer from './user-list-item/container';
+import UserOptionsContainer from './user-options/container';
+import Settings from '/imports/ui/services/settings';
+import { injectIntl } from 'react-intl';
 
 const propTypes = {
-  users: PropTypes.arrayOf(Object).isRequired,
   compact: PropTypes.bool,
   intl: PropTypes.shape({
     formatMessage: PropTypes.func.isRequired,
   }).isRequired,
-  currentUser: PropTypes.shape({}).isRequired,
-  meeting: PropTypes.shape({}),
-  isBreakoutRoom: PropTypes.bool,
+  currentUser: PropTypes.shape({}),
+  users: PropTypes.arrayOf(PropTypes.shape({})).isRequired,
   setEmojiStatus: PropTypes.func.isRequired,
-  assignPresenter: PropTypes.func.isRequired,
-  removeUser: PropTypes.func.isRequired,
-  toggleVoice: PropTypes.func.isRequired,
-  changeRole: PropTypes.func.isRequired,
-  getAvailableActions: PropTypes.func.isRequired,
-  normalizeEmojiName: PropTypes.func.isRequired,
-  isMeetingLocked: PropTypes.func.isRequired,
+  clearAllEmojiStatus: PropTypes.func.isRequired,
   roving: PropTypes.func.isRequired,
+  requestUserInformation: PropTypes.func.isRequired,
 };
 
 const defaultProps = {
   compact: false,
-  isBreakoutRoom: false,
-  // This one is kinda tricky, meteor takes sometime to fetch the data and passing down
-  // So the first time its create, the meeting comes as null, sending an error to the client.
-  meeting: {},
-};
-
-const listTransition = {
-  enter: styles.enter,
-  enterActive: styles.enterActive,
-  appear: styles.appear,
-  appearActive: styles.appearActive,
-  leave: styles.leave,
-  leaveActive: styles.leaveActive,
+  currentUser: null,
 };
 
 const intlMessages = defineMessages({
@@ -48,219 +36,234 @@ const intlMessages = defineMessages({
     id: 'app.userList.usersTitle',
     description: 'Title for the Header',
   },
-  ChatLabel: {
-    id: 'app.userList.menu.chat.label',
-    description: 'Save the changes and close the settings menu',
-  },
-  ClearStatusLabel: {
-    id: 'app.userList.menu.clearStatus.label',
-    description: 'Clear the emoji status of this user',
-  },
-  MakePresenterLabel: {
-    id: 'app.userList.menu.makePresenter.label',
-    description: 'Set this user to be the presenter in this meeting',
-  },
-  RemoveUserLabel: {
-    id: 'app.userList.menu.removeUser.label',
-    description: 'Forcefully remove this user from the meeting',
-  },
-  MuteUserAudioLabel: {
-    id: 'app.userList.menu.muteUserAudio.label',
-    description: 'Forcefully mute this user',
-  },
-  UnmuteUserAudioLabel: {
-    id: 'app.userList.menu.unmuteUserAudio.label',
-    description: 'Forcefully unmute this user',
-  },
-  PromoteUserLabel: {
-    id: 'app.userList.menu.promoteUser.label',
-    description: 'Forcefully promote this viewer to a moderator',
-  },
-  DemoteUserLabel: {
-    id: 'app.userList.menu.demoteUser.label',
-    description: 'Forcefully demote this moderator to a viewer',
-  },
 });
+
+const ROLE_MODERATOR = Meteor.settings.public.user.role_moderator;
+const SKELETON_COUNT = 10;
 
 class UserParticipants extends Component {
   constructor() {
     super();
 
+    this.cache = new CellMeasurerCache({
+      fixedWidth: true,
+      keyMapper: () => 1,
+    });
+
     this.state = {
-      index: -1,
+      selectedUser: null,
+      isOpen: false,
+      scrollArea: false,
     };
 
     this.userRefs = [];
-    this.selectedIndex = -1;
 
     this.getScrollContainerRef = this.getScrollContainerRef.bind(this);
-    this.focusUserItem = this.focusUserItem.bind(this);
+    this.rove = this.rove.bind(this);
     this.changeState = this.changeState.bind(this);
-    this.getUsers = this.getUsers.bind(this);
+    this.rowRenderer = this.rowRenderer.bind(this);
+    this.handleClickSelectedUser = this.handleClickSelectedUser.bind(this);
+    this.selectEl = this.selectEl.bind(this);
   }
 
   componentDidMount() {
-    if (!this.props.compact) {
+    document.getElementById('user-list-virtualized-scroll')?.getElementsByTagName('div')[0]?.firstElementChild?.setAttribute('aria-label', 'Users list');
+
+    const { compact } = this.props;
+    if (!compact) {
       this.refScrollContainer.addEventListener(
         'keydown',
-        event => this.props.roving(
-          event,
-          this.props.users.length,
-          this.changeState,
-        ),
+        this.rove,
+      );
+
+      this.refScrollContainer.addEventListener(
+        'click',
+        this.handleClickSelectedUser,
       );
     }
+
+    window.addEventListener('beforeunload', () => Session.set('dropdownOpenUserId', null));
+  }
+
+  shouldComponentUpdate(nextProps) {
+    return nextProps.isReady;
+  }
+
+  selectEl(el) {
+    if (!el) return null;
+    if (el.getAttribute('tabindex')) return el?.focus();
+    this.selectEl(el?.firstChild);
   }
 
   componentDidUpdate(prevProps, prevState) {
-    if (this.state.index === -1) {
-      return;
-    }
+    const { selectedUser } = this.state;
 
-    if (this.state.index !== prevState.index) {
-      this.focusUserItem(this.state.index);
+    if (selectedUser) {
+      const { firstChild } = selectedUser;
+      if (!firstChild.isEqualNode(document.activeElement)) {
+        this.selectEl(selectedUser);
+      }
     }
+  }
+
+  componentWillUnmount() {
+    this.refScrollContainer.removeEventListener('keydown', this.rove);
+    this.refScrollContainer.removeEventListener('click', this.handleClickSelectedUser);
   }
 
   getScrollContainerRef() {
     return this.refScrollContainer;
   }
 
-  getUsers() {
+  rowRenderer({
+    index,
+    parent,
+    style,
+    key,
+  }) {
     const {
       compact,
-      isBreakoutRoom,
-      currentUser,
-      meeting,
-      getAvailableActions,
-      normalizeEmojiName,
-      isMeetingLocked,
-      users,
-      intl,
-      changeRole,
-      assignPresenter,
       setEmojiStatus,
-      removeUser,
-      toggleVoice,
+      users,
+      requestUserInformation,
+      currentUser,
+      meetingIsBreakout,
+      lockSettingsProps,
+      isThisMeetingLocked,
     } = this.props;
+    const { scrollArea } = this.state;
+    const user = users[index];
+    const isRTL = Settings.application.isRTL;
 
-    const userActions =
-    {
-      openChat: {
-        label: () => intl.formatMessage(intlMessages.ChatLabel),
-        handler: (router, user) => router.push(`/users/chat/${user.id}`),
-        icon: 'chat',
-      },
-      clearStatus: {
-        label: () => intl.formatMessage(intlMessages.ClearStatusLabel),
-        handler: user => setEmojiStatus(user.id, 'none'),
-        icon: 'clear_status',
-      },
-      setPresenter: {
-        label: () => intl.formatMessage(intlMessages.MakePresenterLabel),
-        handler: user => assignPresenter(user.id),
-        icon: 'presentation',
-      },
-      remove: {
-        label: user => intl.formatMessage(intlMessages.RemoveUserLabel, { 0: user.name }),
-        handler: user => removeUser(user.id),
-        icon: 'circle_close',
-      },
-      mute: {
-        label: () => intl.formatMessage(intlMessages.MuteUserAudioLabel),
-        handler: user => toggleVoice(user.id),
-        icon: 'mute',
-      },
-      unmute: {
-        label: () => intl.formatMessage(intlMessages.UnmuteUserAudioLabel),
-        handler: user => toggleVoice(user.id),
-        icon: 'unmute',
-      },
-      promote: {
-        label: () => intl.formatMessage(intlMessages.PromoteUserLabel),
-        handler: user => changeRole(user.id, 'MODERATOR'),
-        icon: 'promote',
-      },
-      demote: {
-        label: () => intl.formatMessage(intlMessages.DemoteUserLabel),
-        handler: user => changeRole(user.id, 'VIEWER'),
-        icon: 'user',
-      },
-    };
-
-    let index = -1;
-
-    return users.map(user => (
-      <CSSTransition
-        classNames={listTransition}
-        appear
-        enter
-        exit
-        timeout={0}
-        component="div"
-        className={cx(styles.participantsList)}
-        key={user.id}
+    return (
+      <CellMeasurer
+        key={key}
+        cache={this.cache}
+        columnIndex={0}
+        parent={parent}
+        rowIndex={index}
       >
-        <div ref={(node) => { this.userRefs[index += 1] = node; }}>
-          <UserListItem
-            compact={compact}
-            isBreakoutRoom={isBreakoutRoom}
+        <span
+          style={style}
+          key={key}
+          id={`user-${user?.userId || ''}`}
+        >
+          <UserListItemContainer
+            {...{
+              compact,
+              setEmojiStatus,
+              requestUserInformation,
+              currentUser,
+              meetingIsBreakout,
+              scrollArea,
+              isRTL,
+              lockSettingsProps,
+              isThisMeetingLocked,
+            }}
             user={user}
-            currentUser={currentUser}
-            userActions={userActions}
-            meeting={meeting}
-            getAvailableActions={getAvailableActions}
-            normalizeEmojiName={normalizeEmojiName}
-            isMeetingLocked={isMeetingLocked}
             getScrollContainerRef={this.getScrollContainerRef}
           />
-        </div>
-      </CSSTransition>
-    ));
+        </span>
+      </CellMeasurer>
+    );
   }
 
-  focusUserItem(index) {
-    if (!this.userRefs[index]) {
-      return;
+  handleClickSelectedUser(event) {
+    let selectedUser = null;
+    if (event.path) {
+      selectedUser = event.path.find(p => p.className && p.className.includes('participantsList'));
     }
-
-    this.userRefs[index].firstChild.focus();
+    this.setState({ selectedUser });
   }
 
-  changeState(newIndex) {
-    this.setState({ index: newIndex });
+  rove(event) {
+    const { roving } = this.props;
+    const { selectedUser, scrollArea } = this.state;
+    const usersItemsRef = findDOMNode(scrollArea.firstChild);
+    roving(event, this.changeState, usersItemsRef, selectedUser);
+  }
+
+  changeState(ref) {
+    this.setState({ selectedUser: ref });
   }
 
   render() {
     const {
-      users,
       intl,
+      users,
       compact,
+      clearAllEmojiStatus,
+      currentUser,
+      meetingIsBreakout,
+      isMeetingMuteOnStart,
     } = this.props;
+    const { isOpen, scrollArea } = this.state;
 
     return (
-      <div className={styles.participants}>
+      <Styled.UserListColumn data-test="userList">
         {
-          !compact ?
-            <h2 className={styles.smallTitle}>
-              {intl.formatMessage(intlMessages.usersTitle)}
-              &nbsp;({users.length})
-            </h2> : <hr className={styles.separator} />
+          !compact
+            ? (
+              <Styled.Container>
+                <Styled.SmallTitle>
+                  {intl.formatMessage(intlMessages.usersTitle)}
+                  {users.length > 0 ? ` (${users.length})` : null}
+                </Styled.SmallTitle>
+                {currentUser?.role === ROLE_MODERATOR
+                  ? (
+                    <UserOptionsContainer {...{
+                      users,
+                      clearAllEmojiStatus,
+                      meetingIsBreakout,
+                      isMeetingMuteOnStart,
+                    }}
+                    />
+                  ) : null
+                }
+
+              </Styled.Container>
+            )
+            : <Styled.Separator />
         }
-        <div
-          className={styles.scrollableList}
-          role="list"
+        <Styled.VirtualizedScrollableList
+          id={'user-list-virtualized-scroll'}
+          aria-label="Users list"
+          role="region"
           tabIndex={0}
-          ref={(ref) => { this.refScrollContainer = ref; }}
+          ref={(ref) => {
+            this.refScrollContainer = ref;
+          }}
         >
-          <div className={styles.list}>
-            <TransitionGroup ref={(ref) => { this.refScrollItems = ref; }}>
-              { this.getUsers() }
-            </TransitionGroup>
-            <div className={styles.footer} />
-          </div>
-        </div>
-      </div>
+          <span id="participants-destination" />
+          <AutoSizer>
+            {({ height, width }) => (
+              <Styled.VirtualizedList
+                {...{
+                  isOpen,
+                  users,
+                }}
+                ref={(ref) => {
+                  if (ref !== null) {
+                    this.listRef = ref;
+                  }
+
+                  if (ref !== null && !scrollArea) {
+                    this.setState({ scrollArea: findDOMNode(ref) });
+                  }
+                }}
+                rowHeight={this.cache.rowHeight}
+                rowRenderer={this.rowRenderer}
+                rowCount={users.length || SKELETON_COUNT}
+                height={height - 1}
+                width={width - 1}
+                overscanRowCount={30}
+                deferredMeasurementCache={this.cache}
+                tabIndex={-1}
+              />
+            )}
+          </AutoSizer>
+        </Styled.VirtualizedScrollableList>
+      </Styled.UserListColumn>
     );
   }
 }
@@ -268,4 +271,4 @@ class UserParticipants extends Component {
 UserParticipants.propTypes = propTypes;
 UserParticipants.defaultProps = defaultProps;
 
-export default UserParticipants;
+export default injectIntl(UserParticipants);

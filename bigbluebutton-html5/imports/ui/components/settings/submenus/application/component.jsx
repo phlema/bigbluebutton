@@ -1,26 +1,37 @@
 import React from 'react';
-import Button from '/imports/ui/components/button/component';
-import cx from 'classnames';
-import Toggle from '/imports/ui/components/switch/component';
+import Button from '/imports/ui/components/common/button/component';
+import Toggle from '/imports/ui/components/common/switch/component';
+import LocalesDropdown from '/imports/ui/components/common/locales-dropdown/component';
 import { defineMessages, injectIntl } from 'react-intl';
 import BaseMenu from '../base/component';
-import { styles } from '../styles';
+import Styled from './styles';
+import VideoService from '/imports/ui/components/video-provider/service';
+import { ACTIONS } from '/imports/ui/components/layout/enums';
+import Settings from '/imports/ui/services/settings';
 
 const MIN_FONTSIZE = 0;
-const MAX_FONTSIZE = 4;
+const SHOW_AUDIO_FILTERS = (Meteor.settings.public.app
+  .showAudioFilters === undefined)
+  ? true
+  : Meteor.settings.public.app.showAudioFilters;
+const { animations } = Settings.application;
 
 const intlMessages = defineMessages({
   applicationSectionTitle: {
     id: 'app.submenu.application.applicationSectionTitle',
     description: 'Application section title',
   },
-  audioNotifyLabel: {
-    id: 'app.submenu.application.audioNotifyLabel',
-    description: 'audio notification label',
+  animationsLabel: {
+    id: 'app.submenu.application.animationsLabel',
+    description: 'animations label',
   },
-  pushNotifyLabel: {
-    id: 'app.submenu.application.pushNotifyLabel',
-    description: 'push notifiation label',
+  audioFilterLabel: {
+    id: 'app.submenu.application.audioFilterLabel',
+    description: 'audio filters label',
+  },
+  darkThemeLabel: {
+    id: 'app.submenu.application.darkThemeLabel',
+    description: 'dark mode label',
   },
   fontSizeControlLabel: {
     id: 'app.submenu.application.fontSizeControlLabel',
@@ -46,9 +57,9 @@ const intlMessages = defineMessages({
     id: 'app.submenu.application.languageLabel',
     description: 'displayed label for changing application locale',
   },
-  ariaLanguageLabel: {
-    id: 'app.submenu.application.ariaLanguageLabel',
-    description: 'aria label for locale change section',
+  currentValue: {
+    id: 'app.submenu.application.currentSize',
+    description: 'current value label',
   },
   languageOptionLabel: {
     id: 'app.submenu.application.languageOptionLabel',
@@ -58,9 +69,57 @@ const intlMessages = defineMessages({
     id: 'app.submenu.application.noLocaleOptionLabel',
     description: 'default change language option when no locales available',
   },
+  paginationEnabledLabel: {
+    id: 'app.submenu.application.paginationEnabledLabel',
+    description: 'enable/disable video pagination',
+  },
+  layoutOptionLabel: {
+    id: 'app.submenu.application.layoutOptionLabel',
+    description: 'layout options',
+  },
+  pushLayoutLabel: {
+    id: 'app.submenu.application.pushLayoutLabel',
+    description: 'push layout togle',
+  },
+  customLayout: {
+    id: 'app.layout.style.custom',
+    description: 'label for custom layout style',
+  },
+  smartLayout: {
+    id: 'app.layout.style.smart',
+    description: 'label for smart layout style',
+  },
+  presentationFocusLayout: {
+    id: 'app.layout.style.presentationFocus',
+    description: 'label for presentationFocus layout style',
+  },
+  videoFocusLayout: {
+    id: 'app.layout.style.videoFocus',
+    description: 'label for videoFocus layout style',
+  },
+  presentationFocusPushLayout: {
+    id: 'app.layout.style.presentationFocusPush',
+    description: 'label for presentationFocus layout style (push to all)',
+  },
+  videoFocusPushLayout: {
+    id: 'app.layout.style.videoFocusPush',
+    description: 'label for videoFocus layout style (push to all)',
+  },
+  smartPushLayout: {
+    id: 'app.layout.style.smartPush',
+    description: 'label for smart layout style (push to all)',
+  },
+  customPushLayout: {
+    id: 'app.layout.style.customPush',
+    description: 'label for custom layout style (push to all)',
+  },
 });
 
 class ApplicationMenu extends BaseMenu {
+  static setHtmlFontSize(size) {
+    document.getElementsByTagName('html')[0].style.fontSize = size;
+  }
+
   constructor(props) {
     super(props);
 
@@ -69,7 +128,86 @@ class ApplicationMenu extends BaseMenu {
       settings: props.settings,
       isLargestFontSize: false,
       isSmallestFontSize: false,
+      showSelect: false,
+      fontSizes: [
+        '12px',
+        '14px',
+        '16px',
+        '18px',
+        '20px',
+      ],
+      audioFilterEnabled: ApplicationMenu.isAudioFilterEnabled(props
+        .settings.microphoneConstraints),
     };
+  }
+
+  componentDidMount() {
+    this.setInitialFontSize();
+  }
+
+  componentWillUnmount() {
+    // fix Warning: Can't perform a React state update on an unmounted component
+    this.setState = () => {};
+  }
+
+  setInitialFontSize() {
+    const { fontSizes } = this.state;
+    const clientFont = document.getElementsByTagName('html')[0].style.fontSize;
+    const hasFont = fontSizes.includes(clientFont);
+    if (!hasFont) {
+      fontSizes.push(clientFont);
+      fontSizes.sort();
+    }
+    const fontIndex = fontSizes.indexOf(clientFont);
+    this.changeFontSize(clientFont);
+    this.setState({
+      isSmallestFontSize: fontIndex <= MIN_FONTSIZE,
+      isLargestFontSize: fontIndex >= (fontSizes.length - 1),
+      fontSizes,
+    });
+  }
+
+  static isAudioFilterEnabled(_constraints) {
+    if (typeof _constraints === 'undefined') return true;
+
+    const _isConstraintEnabled = (constraintValue) => {
+      switch (typeof constraintValue) {
+        case 'boolean':
+          return constraintValue;
+        case 'string':
+          return constraintValue === 'true';
+        case 'object':
+          return !!(constraintValue.exact || constraintValue.ideal);
+        default:
+          return false;
+      }
+    };
+
+    let isAnyFilterEnabled = true;
+
+    const constraints = _constraints && (typeof _constraints.advanced === 'object')
+      ? _constraints.advanced
+      : _constraints || {};
+
+    isAnyFilterEnabled = Object.values(constraints).find(
+      (constraintValue) => _isConstraintEnabled(constraintValue),
+    );
+
+    return isAnyFilterEnabled;
+  }
+
+  handleAudioFilterChange() {
+    const _audioFilterEnabled = !ApplicationMenu.isAudioFilterEnabled(this
+      .state.settings.microphoneConstraints);
+    const _newConstraints = {
+      autoGainControl: _audioFilterEnabled,
+      echoCancellation: _audioFilterEnabled,
+      noiseSuppression: _audioFilterEnabled,
+    };
+
+    const obj = this.state;
+    obj.settings.microphoneConstraints = _newConstraints;
+    this.handleUpdateSettings(this.state.settings, obj.settings);
   }
 
   handleUpdateFontSize(size) {
@@ -78,32 +216,35 @@ class ApplicationMenu extends BaseMenu {
     this.handleUpdateSettings(this.state.settingsName, obj.settings);
   }
 
-  setHtmlFontSize(size) {
-    document.getElementsByTagName('html')[0].style.fontSize = size;
-  }
-
   changeFontSize(size) {
+    const { layoutContextDispatch } = this.props;
     const obj = this.state;
     obj.settings.fontSize = size;
     this.setState(obj, () => {
-      this.setHtmlFontSize(this.state.settings.fontSize);
+      ApplicationMenu.setHtmlFontSize(this.state.settings.fontSize);
       this.handleUpdateFontSize(this.state.settings.fontSize);
+    });
+
+    layoutContextDispatch({
+      type: ACTIONS.SET_FONT_SIZE,
+      value: parseInt(size.slice(0, -2), 10),
     });
   }
 
   handleIncreaseFontSize() {
     const currentFontSize = this.state.settings.fontSize;
-    const availableFontSizes = this.props.fontSizes;
-    const canIncreaseFontSize = availableFontSizes.indexOf(currentFontSize) < MAX_FONTSIZE;
-    const fs = canIncreaseFontSize ? availableFontSizes.indexOf(currentFontSize) + 1 : MAX_FONTSIZE;
+    const availableFontSizes = this.state.fontSizes;
+    const maxFontSize = availableFontSizes.length - 1;
+    const canIncreaseFontSize = availableFontSizes.indexOf(currentFontSize) < maxFontSize;
+    const fs = canIncreaseFontSize ? availableFontSizes.indexOf(currentFontSize) + 1 : maxFontSize;
     this.changeFontSize(availableFontSizes[fs]);
-    if (fs === MAX_FONTSIZE) this.setState({ isLargestFontSize: true });
+    if (fs === maxFontSize) this.setState({ isLargestFontSize: true });
     this.setState({ isSmallestFontSize: false });
   }
 
   handleDecreaseFontSize() {
     const currentFontSize = this.state.settings.fontSize;
-    const availableFontSizes = this.props.fontSizes;
+    const availableFontSizes = this.state.fontSizes;
     const canDecreaseFontSize = availableFontSizes.indexOf(currentFontSize) > MIN_FONTSIZE;
     const fs = canDecreaseFontSize ? availableFontSizes.indexOf(currentFontSize) - 1 : MIN_FONTSIZE;
     this.changeFontSize(availableFontSizes[fs]);
@@ -111,136 +252,228 @@ class ApplicationMenu extends BaseMenu {
     this.setState({ isLargestFontSize: false });
   }
 
-  handleSelectChange(fieldname, options, e) {
+  handleSelectChange(fieldname, e) {
     const obj = this.state;
-    obj.settings[fieldname] = e.target.value.toLowerCase().replace('_', '-');
+    obj.settings[fieldname] = e.target.value;
     this.handleUpdateSettings('application', obj.settings);
   }
 
-  // Adjust the locale format to be able to display the locale names properly in the client
-  formatLocale(locale) {
-    return locale
-      .split('-')
-      .map((val, idx) => (idx == 1 ? val.toUpperCase() : val))
-      .join('_');
+  renderAudioFilters() {
+    let audioFilterOption = null;
+
+    if (SHOW_AUDIO_FILTERS) {
+      const { intl, showToggleLabel, displaySettingsStatus } = this.props;
+      const { settings } = this.state;
+      const audioFilterStatus = ApplicationMenu
+        .isAudioFilterEnabled(settings.microphoneConstraints);
+
+      audioFilterOption = (
+        <Styled.Row>
+          <Styled.Col aria-hidden="true">
+            <Styled.FormElement>
+              <Styled.Label>
+                {intl.formatMessage(intlMessages.audioFilterLabel)}
+              </Styled.Label>
+            </Styled.FormElement>
+          </Styled.Col>
+          <Styled.Col>
+            <Styled.FormElementRight>
+              {displaySettingsStatus(audioFilterStatus)}
+              <Toggle
+                icons={false}
+                defaultChecked={this.state.audioFilterEnabled}
+                onChange={() => this.handleAudioFilterChange()}
+                ariaLabel={`${intl.formatMessage(intlMessages.audioFilterLabel)} - ${displaySettingsStatus(audioFilterStatus, true)}`}
+                showToggleLabel={showToggleLabel}
+              />
+            </Styled.FormElementRight>
+          </Styled.Col>
+        </Styled.Row>
+      );
+    }
+
+    return audioFilterOption;
+  }
+
+  renderPaginationToggle() {
+    // See VideoService's method for an explanation
+    if (!VideoService.shouldRenderPaginationToggle()) return false;
+
+    const { intl, showToggleLabel, displaySettingsStatus } = this.props;
+    const { settings } = this.state;
+
+    return (
+      <Styled.Row>
+        <Styled.Col aria-hidden="true">
+          <Styled.FormElement>
+            {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
+            <Styled.Label>
+              {intl.formatMessage(intlMessages.paginationEnabledLabel)}
+            </Styled.Label>
+          </Styled.FormElement>
+        </Styled.Col>
+        <Styled.Col>
+          <Styled.FormElementRight>
+            {displaySettingsStatus(settings.paginationEnabled)}
+            <Toggle
+              icons={false}
+              defaultChecked={settings.paginationEnabled}
+              onChange={() => this.handleToggle('paginationEnabled')}
+              ariaLabel={`${intl.formatMessage(intlMessages.paginationEnabledLabel)} - ${displaySettingsStatus(settings.paginationEnabled, true)}`}
+              showToggleLabel={showToggleLabel}
+            />
+          </Styled.FormElementRight>
+        </Styled.Col>
+      </Styled.Row>
+    );
+  }
+
+  renderDarkThemeToggle() {
+    const { intl, showToggleLabel, displaySettingsStatus } = this.props;
+    const { settings } = this.state;
+
+    const isDarkThemeEnabled = Meteor.settings.public.app.darkTheme.enabled;
+    if (!isDarkThemeEnabled) return null;
+
+    return (
+      <Styled.Row>
+        <Styled.Col aria-hidden="true">
+          <Styled.FormElement>
+            {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
+            <Styled.Label>
+              {intl.formatMessage(intlMessages.darkThemeLabel)}
+            </Styled.Label>
+          </Styled.FormElement>
+        </Styled.Col>
+        <Styled.Col>
+          <Styled.FormElementRight>
+            {displaySettingsStatus(settings.darkTheme)}
+            <Toggle
+              icons={false}
+              defaultChecked={settings.darkTheme}
+              onChange={() => this.handleToggle('darkTheme')}
+              showToggleLabel={showToggleLabel}
+              ariaLabel={`${intl.formatMessage(intlMessages.darkThemeLabel)} - ${displaySettingsStatus(settings.darkTheme, true)}`}
+              data-test="darkModeToggleBtn"
+            />
+          </Styled.FormElementRight>
+        </Styled.Col>
+      </Styled.Row>
+    );
   }
 
   render() {
-    const { availableLocales, intl } = this.props;
-    const { isLargestFontSize, isSmallestFontSize } = this.state;
+    const {
+      allLocales, intl, showToggleLabel, displaySettingsStatus,
+    } = this.props;
+    const {
+      isLargestFontSize, isSmallestFontSize, settings,
+    } = this.state;
+
+    // conversions can be found at http://pxtoem.com
+    const pixelPercentage = {
+      '12px': '75%',
+      // 14px is actually 87.5%, rounding up to show more friendly value
+      '14px': '90%',
+      '16px': '100%',
+      // 18px is actually 112.5%, rounding down to show more friendly value
+      '18px': '110%',
+      '20px': '125%',
+    };
+
+    const ariaValueLabel = intl.formatMessage(intlMessages.currentValue, { 0: `${pixelPercentage[settings.fontSize]}` });
+
+    const showSelect = allLocales && allLocales.length > 0;
 
     return (
-      <div className={styles.tabContent}>
-        <div className={styles.header}>
-          <h3 className={styles.title}>
+      <div>
+        <div>
+          <Styled.Title>
             {intl.formatMessage(intlMessages.applicationSectionTitle)}
-          </h3>
+          </Styled.Title>
         </div>
-        <div className={styles.form}>
-          <div className={styles.row}>
-            <div className={styles.col} aria-hidden="true">
-              <div className={styles.formElement}>
-                <label className={styles.label}>
-                  {intl.formatMessage(intlMessages.audioNotifyLabel)}
-                </label>
-              </div>
-            </div>
-            <div className={styles.col}>
-              <div className={cx(styles.formElement, styles.pullContentRight)}>
+        <Styled.Form>
+          <Styled.Row>
+            <Styled.Col aria-hidden="true">
+              <Styled.FormElement>
+                {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
+                <Styled.Label>
+                  {intl.formatMessage(intlMessages.animationsLabel)}
+                </Styled.Label>
+              </Styled.FormElement>
+            </Styled.Col>
+            <Styled.Col>
+              <Styled.FormElementRight>
+                {displaySettingsStatus(settings.animations)}
                 <Toggle
                   icons={false}
-                  defaultChecked={this.state.settings.chatAudioNotifications}
-                  onChange={() => this.handleToggle('chatAudioNotifications')}
-                  ariaLabel={intl.formatMessage(intlMessages.audioNotifyLabel)}
+                  defaultChecked={settings.animations}
+                  onChange={() => this.handleToggle('animations')}
+                  ariaLabel={`${intl.formatMessage(intlMessages.animationsLabel)} - ${displaySettingsStatus(settings.animations, true)}`}
+                  showToggleLabel={showToggleLabel}
                 />
-              </div>
-            </div>
-          </div>
+              </Styled.FormElementRight>
+            </Styled.Col>
+          </Styled.Row>
 
-          <div className={styles.row}>
-            <div className={styles.col} aria-hidden="true">
-              <div className={styles.formElement}>
-                <label className={styles.label}>
-                  {intl.formatMessage(intlMessages.pushNotifyLabel)}
-                </label>
-              </div>
-            </div>
-            <div className={styles.col}>
-              <div className={cx(styles.formElement, styles.pullContentRight)}>
-                <Toggle
-                  icons={false}
-                  defaultChecked={this.state.settings.chatPushNotifications}
-                  onChange={() => this.handleToggle('chatPushNotifications')}
-                  ariaLabel={intl.formatMessage(intlMessages.pushNotifyLabel)}
-                />
-              </div>
-            </div>
-          </div>
-          <div className={styles.row}>
-            <div className={styles.col} aria-hidden="true">
-              <div className={styles.formElement}>
-                <label className={styles.label}>
+          {this.renderAudioFilters()}
+          {this.renderPaginationToggle()}
+          {this.renderDarkThemeToggle()}
+
+          <Styled.Row>
+            <Styled.Col>
+              <Styled.FormElement>
+                <Styled.Label aria-hidden>
                   {intl.formatMessage(intlMessages.languageLabel)}
-                </label>
-              </div>
-            </div>
-            <div className={styles.col}>
-              <div
-                id="changeLangLabel"
-                aria-label={intl.formatMessage(intlMessages.ariaLanguageLabel)}
-              />
-              <label
-                aria-labelledby="changeLangLabel"
-                className={cx(styles.formElement, styles.pullContentRight)}
-              >
-                {availableLocales && availableLocales.length > 0 ? (
-                  <select
-                    defaultValue={this.state.settings.locale}
-                    className={styles.select}
-                    onChange={this.handleSelectChange.bind(this, 'locale', availableLocales)}
-                  >
-                    <option disabled>{intl.formatMessage(intlMessages.languageOptionLabel)}</option>
-                    {availableLocales.map((locale, index) => (
-                      <option key={index} value={locale.locale}>
-                        {locale.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-              </label>
-            </div>
-          </div>
-          <hr className={styles.separator} />
-          <div className={styles.row}>
-            <div className={styles.col}>
-              <div className={styles.formElement}>
-                <label className={styles.label}>
-                  {intl.formatMessage(intlMessages.fontSizeControlLabel)}
-                </label>
-              </div>
-            </div>
-            <div className={styles.col}>
-              <div className={cx(styles.formElement, styles.pullContentCenter)}>
-                <label className={cx(styles.label, styles.bold)}>
-                  {this.state.settings.fontSize}
-                </label>
-              </div>
-            </div>
-            <div className={styles.col}>
-              <div className={cx(styles.formElement, styles.pullContentRight)}>
-                <div className={styles.pullContentRight}>
-                  <div className={styles.col}>
-                    <Button
-                      onClick={() => this.handleIncreaseFontSize()}
-                      color="primary"
-                      icon="add"
-                      circle
-                      hideLabel
-                      label={intl.formatMessage(intlMessages.increaseFontBtnLabel)}
-                      disabled={isLargestFontSize}
+                </Styled.Label>
+              </Styled.FormElement>
+            </Styled.Col>
+            <Styled.Col>
+              <Styled.FormElementRight>
+                {showSelect ? (
+                  <Styled.LocalesDropdownSelect>
+                    <LocalesDropdown
+                      allLocales={allLocales}
+                      handleChange={(e) => this.handleSelectChange('locale', e)}
+                      value={settings.locale}
+                      elementId="langSelector"
+                      ariaLabel={intl.formatMessage(intlMessages.languageLabel)}
+                      selectMessage={intl.formatMessage(intlMessages.languageOptionLabel)}
                     />
-                  </div>
-                  <div className={styles.col}>
+                  </Styled.LocalesDropdownSelect>
+                ) : (
+                  <Styled.SpinnerOverlay animations={animations}>
+                    <Styled.Bounce1 animations={animations} />
+                    <Styled.Bounce2 animations={animations} />
+                    <div />
+                  </Styled.SpinnerOverlay>
+                )}
+              </Styled.FormElementRight>
+            </Styled.Col>
+          </Styled.Row>
+
+          <Styled.Separator />
+          <Styled.Row>
+            <Styled.Col>
+              <Styled.FormElement>
+                {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
+                <Styled.Label>
+                  {intl.formatMessage(intlMessages.fontSizeControlLabel)}
+                </Styled.Label>
+              </Styled.FormElement>
+            </Styled.Col>
+            <Styled.Col>
+              <Styled.FormElementCenter aria-hidden>
+                {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
+                <Styled.BoldLabel>
+                  {`${pixelPercentage[settings.fontSize]}`}
+                </Styled.BoldLabel>
+              </Styled.FormElementCenter>
+            </Styled.Col>
+            <Styled.Col>
+              <Styled.FormElementRight>
+                <Styled.PullContentRight>
+                  <Styled.Col>
                     <Button
                       onClick={() => this.handleDecreaseFontSize()}
                       color="primary"
@@ -248,14 +481,27 @@ class ApplicationMenu extends BaseMenu {
                       circle
                       hideLabel
                       label={intl.formatMessage(intlMessages.decreaseFontBtnLabel)}
+                      aria-label={`${intl.formatMessage(intlMessages.decreaseFontBtnLabel)}, ${ariaValueLabel}`}
                       disabled={isSmallestFontSize}
                     />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+                  </Styled.Col>
+                  <Styled.Col>
+                    <Button
+                      onClick={() => this.handleIncreaseFontSize()}
+                      color="primary"
+                      icon="add"
+                      circle
+                      hideLabel
+                      label={intl.formatMessage(intlMessages.increaseFontBtnLabel)}
+                      aria-label={`${intl.formatMessage(intlMessages.increaseFontBtnLabel)}, ${ariaValueLabel}`}
+                      disabled={isLargestFontSize}
+                    />
+                  </Styled.Col>
+                </Styled.PullContentRight>
+              </Styled.FormElementRight>
+            </Styled.Col>
+          </Styled.Row>
+        </Styled.Form>
       </div>
     );
   }

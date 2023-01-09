@@ -1,24 +1,25 @@
 import Captions from '/imports/api/captions';
 import { Meteor } from 'meteor/meteor';
-import { check } from 'meteor/check';
 import Logger from '/imports/startup/server/logger';
-import mapToAcl from '/imports/startup/mapToAcl';
+import AuthTokenValidation, { ValidationStates } from '/imports/api/auth-token-validation';
 
-function captions(credentials) {
-  const { meetingId, requesterUserId, requesterToken } = credentials;
+function captions() {
+  const tokenValidation = AuthTokenValidation.findOne({ connectionId: this.connection.id });
 
-  check(meetingId, String);
-  check(requesterUserId, String);
-  check(requesterToken, String);
+  if (!tokenValidation || tokenValidation.validationStatus !== ValidationStates.VALIDATED) {
+    Logger.warn(`Publishing Captions was requested by unauth connection ${this.connection.id}`);
+    return Captions.find({ meetingId: '' });
+  }
 
-  Logger.verbose(`Publishing Captions for ${meetingId} ${requesterUserId} ${requesterToken}`);
+  const { meetingId, userId } = tokenValidation;
+  Logger.debug('Publishing Captions', { meetingId, requestedBy: userId });
 
   return Captions.find({ meetingId });
 }
 
 function publish(...args) {
   const boundCaptions = captions.bind(this);
-  return mapToAcl('subscriptions.captions', boundCaptions)(args);
+  return boundCaptions(...args);
 }
 
 Meteor.publish('captions', publish);

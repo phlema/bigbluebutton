@@ -1,65 +1,80 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import PropTypes from 'prop-types';
 import { withTracker } from 'meteor/react-meteor-data';
-import PresentationToolbarService from './service';
+import PresentationService from '/imports/ui/components/presentation/service';
+import PollService from '/imports/ui/components/poll/service';
+import { makeCall } from '/imports/ui/services/api';
 import PresentationToolbar from './component';
+import PresentationToolbarService from './service';
+import { UsersContext } from '/imports/ui/components/components-data/users-context/context';
+import Auth from '/imports/ui/services/auth';
+import FullscreenService from '/imports/ui/components/common/fullscreen-button/service';
+import { isPollingEnabled } from '/imports/ui/services/features';
 
 const PresentationToolbarContainer = (props) => {
-  const {
-    currentSlideNum,
-    userIsPresenter,
-    numberOfSlides,
-    actions,
-  } = props;
+  const usingUsersContext = useContext(UsersContext);
+  const { users } = usingUsersContext;
+  const currentUser = users[Auth.meetingID][Auth.userID];
+  const userIsPresenter = currentUser.presenter;
 
-  if (userIsPresenter) {
-    // Only show controls if user is presenter
+  const { layoutSwapped } = props;
+
+  const handleToggleFullScreen = (ref) => FullscreenService.toggleFullScreen(ref);
+
+  if (userIsPresenter && !layoutSwapped) {
+    // Only show controls if user is presenter and layout isn't swapped
+
     return (
       <PresentationToolbar
-        currentSlideNum={currentSlideNum}
-        numberOfSlides={numberOfSlides}
-        actions={actions}
+        {...props}
+        amIPresenter={userIsPresenter}
+        {...{
+          handleToggleFullScreen,
+        }}
       />
     );
   }
   return null;
 };
 
-export default withTracker(({ presentationId, userIsPresenter, currentSlideNum }) => {
-  const data = PresentationToolbarService.getSlideData(presentationId);
-
+export default withTracker((params) => {
   const {
-    numberOfSlides,
-  } = data;
+    podId,
+    presentationId,
+  } = params;
+
+  const startPoll = (type, id, answers = [], question = '', multiResp = false) => {
+    Session.set('openPanel', 'poll');
+    Session.set('forcePollOpen', true);
+    window.dispatchEvent(new Event('panelChanged'));
+
+    makeCall('startPoll', PollService.pollTypes, type, id, false, question, multiResp, answers);
+  };
 
   return {
-    userIsPresenter,
-    numberOfSlides,
-    actions: {
-      nextSlideHandler: () =>
-        PresentationToolbarService.nextSlide(currentSlideNum, numberOfSlides),
-      previousSlideHandler: () =>
-        PresentationToolbarService.previousSlide(currentSlideNum, numberOfSlides),
-      skipToSlideHandler: event =>
-        PresentationToolbarService.skipToSlide(event),
-    },
+    numberOfSlides: PresentationToolbarService.getNumberOfSlides(podId, presentationId),
+    nextSlide: PresentationToolbarService.nextSlide,
+    previousSlide: PresentationToolbarService.previousSlide,
+    skipToSlide: PresentationToolbarService.skipToSlide,
+    isMeteorConnected: Meteor.status().connected,
+    isPollingEnabled: isPollingEnabled(),
+    currentSlidHasContent: PresentationService.currentSlidHasContent(),
+    parseCurrentSlideContent: PresentationService.parseCurrentSlideContent,
+    startPoll,
   };
 })(PresentationToolbarContainer);
 
 PresentationToolbarContainer.propTypes = {
   // Number of current slide being displayed
   currentSlideNum: PropTypes.number.isRequired,
-
-  // Is the user a presenter
-  userIsPresenter: PropTypes.bool.isRequired,
+  zoom: PropTypes.number.isRequired,
+  zoomChanger: PropTypes.func.isRequired,
 
   // Total number of slides in this presentation
   numberOfSlides: PropTypes.number.isRequired,
 
   // Actions required for the presenter toolbar
-  actions: PropTypes.shape({
-    nextSlideHandler: PropTypes.func.isRequired,
-    previousSlideHandler: PropTypes.func.isRequired,
-    skipToSlideHandler: PropTypes.func.isRequired,
-  }).isRequired,
+  nextSlide: PropTypes.func.isRequired,
+  previousSlide: PropTypes.func.isRequired,
+  skipToSlide: PropTypes.func.isRequired,
 };

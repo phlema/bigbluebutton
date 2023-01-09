@@ -1,19 +1,17 @@
 import React, { Component } from 'react';
 import PropTypes from 'prop-types';
-import AnnotationHelpers from '../helpers';
+import { getFormattedColor, getStrokeWidth, denormalizeCoord } from '../helpers';
 
 export default class EllipseDrawComponent extends Component {
-
   shouldComponentUpdate(nextProps) {
-    return this.props.version !== nextProps.version;
+    const { version } = this.props;
+    return version !== nextProps.version;
   }
 
   getCoordinates() {
-    const { points } = this.props.annotation;
-    const { slideWidth, slideHeight } = this.props;
+    const { slideWidth, slideHeight, annotation } = this.props;
+    const { points } = annotation;
 
-    // x1 and y1 - coordinates of the ellipse's top left corner
-    // x2 and y2 - coordinates of the ellipse's bottom right corner
     const x1 = points[0];
     const y1 = points[1];
     const x2 = points[2];
@@ -24,10 +22,10 @@ export default class EllipseDrawComponent extends Component {
     // cx and cy - coordinates of the ellipse's center
     let rx = (x2 - x1) / 2;
     let ry = (y2 - y1) / 2;
-    const cx = ((rx + x1) * slideWidth) / 100;
-    const cy = ((ry + y1) * slideHeight) / 100;
-    rx = Math.abs((rx / 100) * slideWidth);
-    ry = Math.abs((ry / 100) * slideHeight);
+    const cx = denormalizeCoord(rx + x1, slideWidth);
+    const cy = denormalizeCoord(ry + y1, slideHeight);
+    rx = denormalizeCoord(Math.abs(rx), slideWidth);
+    ry = denormalizeCoord(Math.abs(ry), slideHeight);
 
     return {
       cx,
@@ -40,7 +38,10 @@ export default class EllipseDrawComponent extends Component {
   render() {
     const results = this.getCoordinates();
     const { annotation, slideWidth } = this.props;
-    const { cx, cy, rx, ry } = results;
+    const { fill } = annotation;
+    const {
+      cx, cy, rx, ry,
+    } = results;
 
     return (
       <ellipse
@@ -48,10 +49,11 @@ export default class EllipseDrawComponent extends Component {
         cy={cy}
         rx={rx}
         ry={ry}
-        fill="none"
-        stroke={AnnotationHelpers.getFormattedColor(annotation.color)}
-        strokeWidth={AnnotationHelpers.getStrokeWidth(annotation.thickness, slideWidth)}
+        fill={ fill ? getFormattedColor(annotation.color) : "none" }
+        stroke={getFormattedColor(annotation.color)}
+        strokeWidth={getStrokeWidth(annotation.thickness, slideWidth)}
         style={{ WebkitTapHighlightColor: 'rgba(0, 0, 0, 0)' }}
+        data-test="drawnEllipse"
       />
     );
   }
@@ -65,6 +67,7 @@ EllipseDrawComponent.propTypes = {
     points: PropTypes.arrayOf(PropTypes.number).isRequired,
     color: PropTypes.number.isRequired,
     thickness: PropTypes.number.isRequired,
+    fill: PropTypes.bool.isRequired,
   }).isRequired,
   // Defines the width of the slide (svg coordinate system), which needed in calculations
   slideWidth: PropTypes.number.isRequired,

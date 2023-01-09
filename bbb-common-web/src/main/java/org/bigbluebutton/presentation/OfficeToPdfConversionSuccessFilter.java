@@ -23,7 +23,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.bigbluebutton.api2.IBbbWebApiGWApp;
-import org.bigbluebutton.presentation.messages.OfficeDocConversionProgress;
+import org.bigbluebutton.presentation.messages.DocConversionProgress;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,11 +32,10 @@ public class OfficeToPdfConversionSuccessFilter {
 
   private final IBbbWebApiGWApp gw;
 
-  private static Map<String, String> conversionMessagesMap;
+  private static Map<String, String> conversionMessagesMap = new HashMap<String, String>();
 
   public OfficeToPdfConversionSuccessFilter(IBbbWebApiGWApp m) {
     gw = m;
-    conversionMessagesMap = new HashMap<String, String>();
     conversionMessagesMap.put(
         ConversionMessageConstants.OFFICE_DOC_CONVERSION_SUCCESS_KEY,
         "Office document successfully converted.");
@@ -49,33 +48,21 @@ public class OfficeToPdfConversionSuccessFilter {
   }
 
   public boolean didConversionSucceed(UploadedPresentation pres) {
-    notifyProgressListener(pres);
-    return pres
-        .getConversionStatus() == ConversionMessageConstants.OFFICE_DOC_CONVERSION_SUCCESS_KEY;
+    return ConversionMessageConstants.OFFICE_DOC_CONVERSION_SUCCESS_KEY.equals(pres.getConversionStatus());
   }
-
-  private void notifyProgressListener(UploadedPresentation pres) {
-    Map<String, Object> msg = new HashMap<String, Object>();
-    msg.put("conference", pres.getMeetingId());
-    msg.put("room", pres.getMeetingId());
-    msg.put("returnCode", "CONVERT");
-    msg.put("presentationId", pres.getId());
-    msg.put("podId", pres.getPodId());
-    msg.put("presentationName", pres.getId());
-    msg.put("filename", pres.getName());
-    msg.put("message", conversionMessagesMap.get(pres.getConversionStatus()));
-    msg.put("messageKey", pres.getConversionStatus());
-
-    log.info("Notifying of {} for ", pres.getConversionStatus(), pres.getUploadedFile().getAbsolutePath());
-    sendProgress(pres);
-  }
-
 
   public void sendProgress(UploadedPresentation pres) {
-    OfficeDocConversionProgress progress = new OfficeDocConversionProgress(pres.getPodId(),
-      pres.getMeetingId(),pres.getId(), pres.getId(),
-      pres.getName(), "notUsedYet", "notUsedYet",
-      pres.isDownloadable(), pres.getConversionStatus());
+    DocConversionProgress progress = new DocConversionProgress(pres.getPodId(),
+      pres.getMeetingId(),
+      pres.getId(),
+      pres.getId(),
+      pres.getName(),
+      "notUsedYet",
+      "notUsedYet",
+      pres.isDownloadable(),
+      pres.isRemovable(),
+      pres.getConversionStatus(),
+      pres.getTemporaryPresentationId());
     gw.sendDocConversionMsg(progress);
   }
 

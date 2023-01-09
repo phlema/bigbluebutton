@@ -1,16 +1,14 @@
 import { check } from 'meteor/check';
 import Logger from '/imports/startup/server/logger';
 import Users from '/imports/api/users';
-
+import Meetings from '/imports/api/meetings';
+import VoiceUsers from '/imports/api/voice-users/';
+import addUserPsersistentData from '/imports/api/users-persistent-data/server/modifiers/addUserPersistentData';
 import stringHash from 'string-hash';
 import flat from 'flat';
+import { lowercaseTrim } from '/imports/utils/string-utils';
 
 import addVoiceUser from '/imports/api/voice-users/server/modifiers/addVoiceUser';
-import changeRole from '/imports/api/users/server/modifiers/changeRole';
-
-import Meetings from '/imports/api/meetings';
-import addChat from '/imports/api/chat/server/modifiers/addChat';
-import clearUserSystemMessages from '/imports/api/chat/server/modifiers/clearUserSystemMessages';
 
 const COLOR_LIST = [
   '#7b1fa2', '#6a1b9a', '#4a148c', '#5e35b1', '#512da8', '#4527a0',
@@ -18,24 +16,9 @@ const COLOR_LIST = [
   '#0d47a1', '#0277bd', '#01579b',
 ];
 
-// add some default welcoming message to the chat (welcome / mod only)
-const addWelcomingChatMessage = (messageText, meetingId, userId) => {
-  const CHAT_CONFIG = Meteor.settings.public.chat;
+export default function addUser(meetingId, userData) {
+  const user = userData;
 
-  const message = {
-    message: messageText,
-    fromColor: '0x3399FF',
-    toUserId: userId,
-    toUsername: CHAT_CONFIG.type_system,
-    fromUserId: CHAT_CONFIG.type_system,
-    fromUsername: '',
-    fromTime: (new Date()).getTime(),
-  };
-
-  addChat(meetingId, message);
-};
-
-export default function addUser(meetingId, user) {
   check(meetingId, String);
 
   check(user, {
@@ -45,106 +28,87 @@ export default function addUser(meetingId, user) {
     role: String,
     guest: Boolean,
     authed: Boolean,
+    waitingForAcceptance: Match.Maybe(Boolean),
     guestStatus: String,
     emoji: String,
     presenter: Boolean,
     locked: Boolean,
     avatar: String,
+    pin: Boolean,
     clientType: String,
   });
 
   const userId = user.intId;
-  check(userId, String);
 
   const selector = {
     meetingId,
     userId,
   };
-
-  const USER_CONFIG = Meteor.settings.public.user;
-  const ROLE_PRESENTER = USER_CONFIG.role_presenter;
-  const ROLE_MODERATOR = USER_CONFIG.role_moderator;
-  const ROLE_VIEWER = USER_CONFIG.role_viewer;
-  const APP_CONFIG = Meteor.settings.public.app;
-  const ALLOW_HTML5_MODERATOR = APP_CONFIG.allowHTML5Moderator;
-
-  // override moderator status of html5 client users, depending on a system flag
-  const dummyUser = Users.findOne(selector);
-  let userRole = user.role;
-
-  if (
-    dummyUser &&
-    dummyUser.clientType === 'HTML5' &&
-    userRole === ROLE_MODERATOR &&
-    !ALLOW_HTML5_MODERATOR
-  ) {
-    userRole = ROLE_VIEWER;
-  }
+  const Meeting = Meetings.findOne({ meetingId });
 
   /* While the akka-apps dont generate a color we just pick one
     from a list based on the userId */
   const color = COLOR_LIST[stringHash(user.intId) % COLOR_LIST.length];
 
+  const userInfos = {
+    meetingId,
+    sortName: lowercaseTrim(user.name),
+    color,
+    speechLocale: '',
+    mobile: false,
+    breakoutProps: {
+      isBreakoutUser: Meeting.meetingProp.isBreakout,
+      parentId: Meeting.breakoutProps.parentId,
+    },
+    effectiveConnectionType: null,
+    inactivityCheck: false,
+    responseDelay: 0,
+    loggedOut: false,
+    left: false,
+    ...flat(user),
+  };
+
   const modifier = {
-    $set: Object.assign(
-      {
-        meetingId,
-        connectionStatus: 'online',
-        roles: [ROLE_VIEWER.toLowerCase()],
-        sortName: user.name.trim().toLowerCase(),
-        color,
-      },
-      flat(user),
-    ),
+    $set: userInfos,
   };
+  addUserPsersistentData(userInfos);
+  // Only add an empty VoiceUser if there isn't one already and if the user coming in isn't a
+  // dial-in user. We want to avoid overwriting good data
+  if (user.clientType !== 'dial-in-user' && !VoiceUsers.findOne({ meetingId, intId: userId })) {
+    addVoiceUser(meetingId, {
+      voiceUserId: '',
+      intId: userId,
+      callerName: user.name,
+      callerNum: '',
+      muted: false,
+      talking: false,
+      callingWith: '',
+      listenOnly: false,
+      voiceConf: '',
+      joined: false,
+    });
+  }
 
-  addVoiceUser(meetingId, {
-    voiceUserId: '',
-    intId: userId,
-    callerName: user.name,
-    callerNum: '',
-    muted: false,
-    talking: false,
-    callingWith: '',
-    listenOnly: false,
-    voiceConf: '',
-    joined: false,
-  });
+  /**
+   * Add a verification to check if the user was set as presenter.
+   * In some cases the user information is set after the presenter is set
+   * causing the first moderator to join a meeting be marked as presenter: false
+   */
+  const partialUser = Users.findOne(selector);
 
-  const cb = (err, numChanged) => {
-    if (err) {
-      return Logger.error(`Adding user to collection: ${err}`);
-    }
+  if (partialUser?.presenter) {
+    modifier.$set.presenter = true;
+  }
 
-    clearUserSystemMessages(meetingId, userId);
+  try {
+    const { insertedId } = Users.upsert(selector, modifier);
 
-    const Meeting = Meetings.findOne({ meetingId });
-    addWelcomingChatMessage(
-      Meeting.welcomeProp.welcomeMsg,
-      meetingId, userId,
-    );
-
-    if (user.presenter) {
-      changeRole(ROLE_PRESENTER, true, userId, meetingId);
-    }
-
-    if (userRole === ROLE_MODERATOR) {
-      changeRole(ROLE_MODERATOR, true, userId, meetingId);
-      if (Meeting.welcomeProp.modOnlyMessage) {
-        addWelcomingChatMessage(
-          Meeting.welcomeProp.modOnlyMessage,
-          meetingId, userId,
-        );
-      }
-    }
-
-    const { insertedId } = numChanged;
     if (insertedId) {
-      return Logger.info(`Added user id=${userId} meeting=${meetingId}`);
+      Logger.info(`Added user id=${userId} meeting=${meetingId}`);
+    } else {
+      Logger.info(`Upserted user id=${userId} meeting=${meetingId}`);
     }
-
-    return Logger.info(`Upserted user id=${userId} meeting=${meetingId}`);
-  };
-
-  return Users.upsert(selector, modifier, cb);
+  } catch (err) {
+    Logger.error(`Adding user to collection: ${err}`);
+  }
 }

@@ -1,11 +1,30 @@
 import React, { Component } from 'react';
 import PropTypes from 'prop-types';
+import PollService from '/imports/ui/components/poll/service';
+import caseInsensitiveReducer from '/imports/utils/caseInsensitiveReducer';
+import { injectIntl, defineMessages } from 'react-intl';
+import Styled from './styles';
 
-export default class PollDrawComponent extends Component {
+const intlMessages = defineMessages({
+  pollResultAria: {
+    id: 'app.whiteboard.annotations.pollResult',
+    description: 'aria label used in poll result string',
+  },
+  noResponsesFromUserResponsePoll: {
+    id: 'app.whiteboard.annotations.noResponses',
+    description: 'aria label used when there is no responses',
+  },
+});
+
+const MAX_DISPLAYED_CHARS = 15;
+
+class PollDrawComponent extends Component {
   constructor(props) {
     super(props);
 
     this.state = {
+      // We did it because it was calculated in the componentWillMount
+      calculated: false,
       // flag indicating whether we need to continue calculating the sizes or display the annotation
       prepareToDisplay: true,
 
@@ -36,7 +55,6 @@ export default class PollDrawComponent extends Component {
       maxRightWidth: 0,
 
       // these parameters are used in calculations before and while displaying the final result
-      votesTotal: 0,
       maxNumVotes: 0,
       textArray: [],
       maxDigitWidth: 0,
@@ -47,169 +65,102 @@ export default class PollDrawComponent extends Component {
       currentLine: 0,
       lineToMeasure: [],
       fontSizeDirection: 1,
+
+      reducedResult: [],
     };
-  }
 
-  componentWillMount() {
-    // in this part we retrieve the props and perform initial calculations for the state
-    // calculating only the parts which have to be done just once and don't require
-    // rendering / rerendering the text objects
-
-    const { points, result } = this.props.annotation;
-    const { slideWidth, slideHeight } = this.props;
-
-    // x1 and y1 - coordinates of the top left corner of the annotation
-    // initial width and height are the width and height of the annotation
-    // all the points are given as percentages of the slide
-    const x1 = points[0];
-    const y1 = points[1];
-    const initialWidth = points[2];
-    const initialHeight = points[3];
-
-    // calculating the data for the outer rectangle
-    // 0.001 is needed to accomodate bottom and right borders of the annotation
-    const x = (x1 / 100) * slideWidth;
-    const y = (y1 / 100) * slideHeight;
-    const width = ((initialWidth - 0.001) / 100) * slideWidth;
-    const height = ((initialHeight - 0.001) / 100) * slideHeight;
-
-    let votesTotal = 0;
-    let maxNumVotes = 0;
-    const textArray = [];
-
-    // counting the total number of votes, finding the biggest number of votes
-    result.reduce((previousValue, currentValue) => {
-      votesTotal = previousValue + currentValue.numVotes;
-      if (maxNumVotes < currentValue.numVotes) {
-        maxNumVotes = currentValue.numVotes;
-      }
-
-      return votesTotal;
-    }, 0);
-
-    // filling the textArray with data to display
-    // adding value of the iterator to each line needed to create unique
-    // keys while rendering at the end
-    const arrayLength = result.length;
-    for (let i = 0; i < arrayLength; i += 1) {
-      const _tempArray = [];
-      const _result = result[i];
-      _tempArray.push(_result.key, `${_result.numVotes}`);
-      if (votesTotal === 0) {
-        _tempArray.push('0%');
-        _tempArray.push(i);
-      } else {
-        const percResult = (_result.numVotes / votesTotal) * 100;
-        _tempArray.push(`${Math.round(percResult)}%`);
-        _tempArray.push(i);
-      }
-
-      textArray.push(_tempArray);
-    }
-
-    // calculating the data for the inner rectangle
-    const innerWidth = width * 0.95;
-    const innerHeight = height - (width * 0.05);
-    const innerX = x + (width * 0.025);
-    const innerY = y + (width * 0.025);
-    const thickness = (width - innerWidth) / 10;
-
-    // calculating the maximum possible width and height of the each line
-    // 25% of the height goes to the padding
-    const maxLineWidth = innerWidth / 3;
-    const maxLineHeight = (innerHeight * 0.75) / textArray.length;
-
-    const lineToMeasure = textArray[0];
-
-    // saving all the initial calculations in the state
-    this.setState({
-      outerRect: {
-        x,
-        y,
-        width,
-        height,
-      },
-      innerRect: {
-        x: innerX,
-        y: innerY,
-        width: innerWidth,
-        height: innerHeight,
-      },
-      thickness,
-      votesTotal,
-      maxNumVotes,
-      textArray,
-      maxLineWidth,
-      maxLineHeight,
-      lineToMeasure,
-    });
+    this.pollInitialCalculation = this.pollInitialCalculation.bind(this);
   }
 
   componentDidMount() {
+    const { annotation, isLayoutSwapped } = this.props;
+    const { pollType, numResponders } = annotation;
+    if (pollType === PollService.pollTypes.Response && numResponders === 0) return;
+
+    if (isLayoutSwapped) return;
+
+    this.pollInitialCalculation();
     this.checkSizes();
   }
 
   // this might have to be changed if we want to reuse it for a presenter's poll popup
   shouldComponentUpdate() {
-    return this.state.prepareToDisplay === true;
+    const { prepareToDisplay } = this.state;
+    return prepareToDisplay === true;
   }
 
   componentDidUpdate() {
-    if (this.state.prepareToDisplay) {
+    const { prepareToDisplay } = this.state;
+    if (prepareToDisplay) {
       this.checkSizes();
     }
   }
 
   checkSizes() {
-    const maxLineWidth = this.state.maxLineWidth;
-    let maxLineHeight = this.state.maxLineHeight;
+    let { maxLineHeight } = this.state;
+
+    const {
+      currentLine,
+      maxLineWidth,
+      fontSizeDirection,
+      calcFontSize,
+      textArray,
+      calculated,
+    } = this.state;
+
+    const { annotation } = this.props;
+    if (!calculated) return null;
+    // increment the font size by 2 to prevent Maximum update depth exceeded
+    const fontSizeIncrement = 2;
 
     // calculating the font size in this if / else block
-    if (this.state.fontSizeDirection !== 0) {
-      const key = `${this.props.annotation.id}_key_${this.state.currentLine}`;
-      const votes = `${this.props.annotation.id}_votes_${this.state.currentLine}`;
-      const percent = `${this.props.annotation.id}_percent_${this.state.currentLine}`;
+    if (fontSizeDirection !== 0) {
+      const key = `${annotation.id}_key_${currentLine}`;
+      const votes = `${annotation.id}_votes_${currentLine}`;
+      const percent = `${annotation.id}_percent_${currentLine}`;
       const keySizes = this[key].getBBox();
       const voteSizes = this[votes].getBBox();
       const percSizes = this[percent].getBBox();
 
       // first check if we can still increase the font-size
-      if (this.state.fontSizeDirection === 1) {
-        if (keySizes.width < maxLineWidth && keySizes.height < maxLineHeight &&
-          voteSizes.width < maxLineWidth && voteSizes.height < maxLineHeight &&
-          percSizes.width < maxLineWidth && percSizes.height < maxLineHeight) {
+      if (fontSizeDirection === 1) {
+        if ((keySizes.width < maxLineWidth && keySizes.height < maxLineHeight
+          && voteSizes.width < maxLineWidth && voteSizes.height < maxLineHeight
+          && percSizes.width < maxLineWidth && percSizes.height < maxLineHeight)
+          && calcFontSize < 100) {
           return this.setState({
-            calcFontSize: this.state.calcFontSize + 1,
+            calcFontSize: calcFontSize + fontSizeIncrement,
           });
 
           // we can't increase font-size anymore, start decreasing
         }
         return this.setState({
           fontSizeDirection: -1,
-          calcFontSize: this.state.calcFontSize - 1,
+          calcFontSize: calcFontSize - fontSizeIncrement,
         });
-      } else if (this.state.fontSizeDirection === -1) {
+      } if (fontSizeDirection === -1) {
         // check if the font-size is still bigger than allowed
-        if (keySizes.width > maxLineWidth || keySizes.height > maxLineHeight ||
-          voteSizes.width > maxLineWidth || voteSizes.height > maxLineHeight ||
-          percSizes.width > maxLineWidth || percSizes.height > maxLineHeight) {
+        if ((keySizes.width > maxLineWidth || keySizes.height > maxLineHeight
+          || voteSizes.width > maxLineWidth || voteSizes.height > maxLineHeight
+          || percSizes.width > maxLineWidth || percSizes.height > maxLineHeight)
+          && calcFontSize > 0) {
           return this.setState({
-            calcFontSize: this.state.calcFontSize - 1,
+            calcFontSize: calcFontSize - fontSizeIncrement,
           });
 
           // font size is fine for the current line, switch to the next line
           // or finish with the font-size calculations if this we are at the end of the array
         }
-        if (this.state.currentLine < this.state.textArray.length - 1) {
+        if (currentLine < textArray.length - 1) {
           return this.setState({
-            currentLine: this.state.currentLine + 1,
-            lineToMeasure: this.state.textArray[this.state.currentLine + 1],
+            currentLine: currentLine + 1,
+            lineToMeasure: textArray[currentLine + 1],
           });
         }
         return this.setState({
           fontSizeDirection: 0,
           currentLine: 0,
-          lineToMeasure: this.state.textArray[0],
+          lineToMeasure: textArray[0],
         });
       }
     }
@@ -221,9 +172,9 @@ export default class PollDrawComponent extends Component {
     let maxLeftWidth = 0;
     let maxRightWidth = 0;
     maxLineHeight = 0;
-    for (let i = 0; i < this.state.textArray.length; i += 1) {
-      const key = `${this.props.annotation.id}_key_${i}`;
-      const percent = `${this.props.annotation.id}_percent_${i}`;
+    for (let i = 0; i < textArray.length; i += 1) {
+      const key = `${annotation.id}_key_${i}`;
+      const percent = `${annotation.id}_percent_${i}`;
       const keySizes = this[key].getBBox();
       const percSizes = this[percent].getBBox();
 
@@ -244,7 +195,7 @@ export default class PollDrawComponent extends Component {
       }
     }
 
-    const digitRef = `${this.props.annotation.id}_digit`;
+    const digitRef = `${annotation.id}_digit`;
     const maxDigitWidth = this[digitRef].getBBox().width;
     const maxDigitHeight = this[digitRef].getBBox().height;
 
@@ -258,23 +209,154 @@ export default class PollDrawComponent extends Component {
     });
   }
 
-  renderPoll() {
-    const {
-      innerRect,
-      outerRect,
-      textArray,
-      maxLeftWidth,
-      maxRightWidth,
-      maxNumVotes,
-      maxDigitWidth,
-      maxDigitHeight,
-      maxLineHeight,
-      backgroundColor,
-      calcFontSize,
-      thickness,
-    } = this.state;
+  pollInitialCalculation() {
+    // in this part we retrieve the props and perform initial calculations for the state
+    // calculating only the parts which have to be done just once and don't require
+    // rendering / rerendering the text objects
 
     const { annotation } = this.props;
+    const { points, result, numResponders, pollType } = annotation;
+    const { slideWidth, slideHeight, intl } = this.props;
+
+    // group duplicated responses and keep track of the number of removed items
+    const reducedResult = result.reduce(caseInsensitiveReducer, []).sort((a, b) => a.id - b.id);
+    const reducedResultRatio = reducedResult.length * 100 / result.length;
+
+    // x1 and y1 - coordinates of the top left corner of the annotation
+    // initial width and height are the width and height of the annotation
+    // all the points are given as percentages of the slide
+    const initialWidth = points[2];
+    const initialHeight = points[3] / 100 * reducedResultRatio; // calculate new height after grouping
+    const x1 = points[0];
+    const y1 = points[1] + (points[3] - initialHeight); // add the difference between original and reduced values
+
+    // calculating the data for the outer rectangle
+    // 0.001 is needed to accomodate bottom and right borders of the annotation
+    const x = (x1 / 100) * slideWidth;
+    const y = (y1 / 100) * slideHeight;
+    const width = ((initialWidth - 0.001) / 100) * slideWidth;
+    const height = ((initialHeight - 0.001) / 100) * slideHeight;
+
+    let votesTotal = 0;
+    let maxNumVotes = 0;
+    const textArray = [];
+
+    // counting the total number of votes, finding the biggest number of votes
+    reducedResult.reduce((previousValue, currentValue) => {
+      votesTotal = previousValue + currentValue.numVotes;
+      if (maxNumVotes < currentValue.numVotes) {
+        maxNumVotes = currentValue.numVotes;
+      }
+
+      return votesTotal;
+    }, 0);
+
+    // filling the textArray with data to display
+    // adding value of the iterator to each line needed to create unique
+    // keys while rendering at the end
+    const arrayLength = reducedResult.length;
+    const { pollAnswerIds } = PollService;
+    const isDefaultPoll = PollService.isDefaultPoll(pollType);
+    for (let i = 0; i < arrayLength; i += 1) {
+      const _tempArray = [];
+      const _result = reducedResult[i];
+
+      if (isDefaultPoll && pollAnswerIds[_result.key.toLowerCase()]) {
+        _result.key = intl.formatMessage(pollAnswerIds[_result.key.toLowerCase()]);
+      }
+
+      if (_result.key.length > MAX_DISPLAYED_CHARS) {
+        // find closest end of word
+        const before = _result.key.lastIndexOf(' ', MAX_DISPLAYED_CHARS);
+        const after = _result.key.indexOf(' ', MAX_DISPLAYED_CHARS + 1);
+
+        const breakpoint = (MAX_DISPLAYED_CHARS - before < after - MAX_DISPLAYED_CHARS) ? before : after;
+
+        if (breakpoint === -1) {
+          _result.key = `${_result.key.substr(0, MAX_DISPLAYED_CHARS)}...`;
+        } else {
+          _result.key = `${_result.key.substr(0, breakpoint)}...`;
+        }
+      }
+      _tempArray.push(_result.key, `${_result.numVotes}`);
+      if (numResponders === 0) {
+        _tempArray.push('0%');
+        _tempArray.push(i);
+      } else {
+        const percResult = (_result.numVotes / numResponders) * 100;
+        _tempArray.push(`${Math.round(percResult)}%`);
+        _tempArray.push(i);
+      }
+
+      textArray.push(_tempArray);
+    }
+
+    // calculating the data for the inner rectangle
+    const innerWidth = width * 0.95;
+    const innerHeight = height - (width * 0.05);
+    const innerX = x + (width * 0.025);
+    const innerY = y + (width * 0.025);
+    const thickness = (width - innerWidth) / 10;
+
+    // calculating the maximum possible width and height of the each line
+    // 25% of the height goes to the padding
+    const maxLineWidth = innerWidth / 2;
+    const maxLineHeight = (innerHeight * 0.75) / textArray.length;
+
+    const lineToMeasure = textArray[0];
+    const messageIndex = lineToMeasure[0].toLowerCase();
+    if (isDefaultPoll && pollAnswerIds[messageIndex]) {
+      lineToMeasure[0] = intl.formatMessage(pollAnswerIds[messageIndex]);
+    }
+
+    this.setState({
+      outerRect: {
+        x,
+        y,
+        width,
+        height,
+      },
+      innerRect: {
+        x: innerX,
+        y: innerY,
+        width: innerWidth,
+        height: innerHeight,
+      },
+      thickness,
+      maxNumVotes,
+      textArray,
+      maxLineWidth,
+      maxLineHeight,
+      lineToMeasure,
+      calculated: true,
+      reducedResult,
+    });
+  }
+
+  renderPoll() {
+    const {
+      backgroundColor,
+      calcFontSize,
+      innerRect,
+      maxDigitHeight,
+      maxDigitWidth,
+      maxLeftWidth,
+      maxLineHeight,
+      maxNumVotes,
+      maxRightWidth,
+      outerRect,
+      textArray,
+      thickness,
+      calculated,
+      reducedResult,
+    } = this.state;
+    if (!calculated) return null;
+
+    const { annotation, intl } = this.props;
+
+    const { pollAnswerIds } = PollService;
+
+    const isRTL = document.documentElement.getAttribute('dir') === 'rtl';
 
     //* ********************************************************************************************
     //* *****************************************MAGIC NUMBER***************************************
@@ -308,17 +390,24 @@ export default class PollDrawComponent extends Component {
 
     // Initial coordinates of the percentage column
     let yRight = ((innerRect.y + verticalPadding) + (barHeight / 2)) - magicNumber;
-    const xRight = ((((innerRect.x + (horizontalPadding * 3)) +
-      maxLeftWidth) + maxRightWidth) + maxBarWidth + 1);
+    const xRight = ((((innerRect.x + (horizontalPadding * 3))
+      + maxLeftWidth) + maxRightWidth) + maxBarWidth + 1);
 
     let yNumVotes = (innerRect.y + verticalPadding) - magicNumber;
     const extendedTextArray = [];
     for (let i = 0; i < textArray.length; i += 1) {
       let barWidth;
-      if (maxNumVotes === 0 || annotation.result[i].numVotes === 0) {
+      if (maxNumVotes === 0 || reducedResult[i].numVotes === 0) {
         barWidth = 1;
       } else {
-        barWidth = (annotation.result[i].numVotes / maxNumVotes) * maxBarWidth;
+        barWidth = (reducedResult[i].numVotes / maxNumVotes) * maxBarWidth;
+      }
+
+      let label = textArray[i][0];
+      const formattedMessageIndex = label.toLowerCase();
+      const isDefaultPoll = PollService.isDefaultPoll(annotation.pollType);
+      if (isDefaultPoll && pollAnswerIds[formattedMessageIndex]) {
+        label = intl.formatMessage(pollAnswerIds[formattedMessageIndex]);
       }
 
       // coordinates and color of the text inside the line bar
@@ -337,11 +426,10 @@ export default class PollDrawComponent extends Component {
         color = 'white';
       }
 
-      extendedTextArray[i] =
-      {
+      extendedTextArray[i] = {
         key: `${annotation.id}_${textArray[i][3]}`,
         keyColumn: {
-          keyString: textArray[i][0],
+          keyString: label,
           xLeft,
           yLeft,
         },
@@ -354,7 +442,7 @@ export default class PollDrawComponent extends Component {
           yNumVotes,
           xNumVotes,
           color,
-          numVotes: annotation.result[i].numVotes,
+          numVotes: reducedResult[i].numVotes,
         },
         percentColumn: {
           xRight,
@@ -371,7 +459,7 @@ export default class PollDrawComponent extends Component {
     }
 
     return (
-      <g>
+      <g aria-hidden>
         <rect
           x={outerRect.x}
           y={outerRect.y}
@@ -389,27 +477,22 @@ export default class PollDrawComponent extends Component {
           fill={backgroundColor}
           strokeWidth={thickness}
         />
-        <text
-          x={innerRect.x}
-          y={innerRect.y}
-          fill="#333333"
-          fontFamily="Arial"
-          fontSize={calcFontSize}
-          textAnchor="start"
-        >
-          {extendedTextArray.map(line =>
-            (<tspan
-              x={line.keyColumn.xLeft}
-              y={line.keyColumn.yLeft}
-              dy={maxLineHeight / 2}
-              key={`${line.key}_key`}
-            >
-              {line.keyColumn.keyString}
-            </tspan>),
-          )}
-        </text>
-        {extendedTextArray.map(line =>
-          (<rect
+        {extendedTextArray.map((line) => (
+          <Styled.OutlineText
+            x={line.keyColumn.xLeft}
+            y={line.keyColumn.yLeft}
+            dy={maxLineHeight / 2}
+            key={`${line.key}_key`}
+            fill="#333333"
+            fontFamily="Arial"
+            fontSize={calcFontSize}
+            textAnchor={isRTL ? 'end' : 'start'}
+          >
+            {line.keyColumn.keyString}
+          </Styled.OutlineText>
+        ))}
+        {extendedTextArray.map((line) => (
+          <rect
             key={`${line.key}_bar`}
             x={line.barColumn.xBar}
             y={line.barColumn.yBar}
@@ -418,26 +501,26 @@ export default class PollDrawComponent extends Component {
             stroke="#333333"
             fill="#333333"
             strokeWidth={thickness - 1}
-          />),
-        )}
+          />
+        ))}
         <text
           x={innerRect.x}
           y={innerRect.y}
           fill="#333333"
           fontFamily="Arial"
           fontSize={calcFontSize}
-          textAnchor="end"
+          textAnchor={isRTL ? 'start' : 'end'}
         >
-          {extendedTextArray.map(line =>
-            (<tspan
+          {extendedTextArray.map((line) => (
+            <Styled.OutlineTSpan
               x={line.percentColumn.xRight}
               y={line.percentColumn.yRight}
               dy={maxLineHeight / 2}
               key={`${line.key}_percent`}
             >
               {line.percentColumn.percentString}
-            </tspan>),
-          )}
+            </Styled.OutlineTSpan>
+          ))}
         </text>
         <text
           x={innerRect.x}
@@ -445,9 +528,10 @@ export default class PollDrawComponent extends Component {
           fill="#333333"
           fontFamily="Arial"
           fontSize={calcFontSize}
+          textAnchor={isRTL ? 'end' : 'start'}
         >
-          {extendedTextArray.map(line =>
-            (<tspan
+          {extendedTextArray.map((line) => (
+            <Styled.OutlineTSpan
               x={line.barColumn.xNumVotes + (line.barColumn.barWidth / 2)}
               y={line.barColumn.yNumVotes + (line.barColumn.barHeight / 2)}
               dy={maxLineHeight / 2}
@@ -455,8 +539,8 @@ export default class PollDrawComponent extends Component {
               fill={line.barColumn.color}
             >
               {line.barColumn.numVotes}
-            </tspan>),
-          )}
+            </Styled.OutlineTSpan>
+          ))}
         </text>
       </g>
     );
@@ -464,12 +548,16 @@ export default class PollDrawComponent extends Component {
 
   renderLine(line) {
     // this func just renders the strings for one line
+
+    const { calcFontSize } = this.state;
+    const { annotation } = this.props;
+
     return (
-      <g key={`${this.props.annotation.id}_line_${line[3]}`}>
+      <g key={`${annotation.id}_line_${line[3]}`}>
         <text
           fontFamily="Arial"
-          fontSize={this.state.calcFontSize}
-          ref={(ref) => { this[`${this.props.annotation.id}_key_${line[3]}`] = ref; }}
+          fontSize={calcFontSize}
+          ref={(ref) => { this[`${annotation.id}_key_${line[3]}`] = ref; }}
         >
           <tspan>
             {line[0]}
@@ -477,8 +565,8 @@ export default class PollDrawComponent extends Component {
         </text>
         <text
           fontFamily="Arial"
-          fontSize={this.state.calcFontSize}
-          ref={(ref) => { this[`${this.props.annotation.id}_votes_${line[3]}`] = ref; }}
+          fontSize={calcFontSize}
+          ref={(ref) => { this[`${annotation.id}_votes_${line[3]}`] = ref; }}
         >
           <tspan>
             {line[1]}
@@ -486,8 +574,8 @@ export default class PollDrawComponent extends Component {
         </text>
         <text
           fontFamily="Arial"
-          fontSize={this.state.calcFontSize}
-          ref={(ref) => { this[`${this.props.annotation.id}_percent_${line[3]}`] = ref; }}
+          fontSize={calcFontSize}
+          ref={(ref) => { this[`${annotation.id}_percent_${line[3]}`] = ref; }}
         >
           <tspan>
             {line[2]}
@@ -498,23 +586,28 @@ export default class PollDrawComponent extends Component {
   }
 
   renderTestStrings() {
+    const { annotation } = this.props;
+    const {
+      calcFontSize,
+      fontSizeDirection,
+      lineToMeasure,
+      textArray,
+    } = this.state;
+
     // check whether we need to render just one line, which means that
     // we are still calculating the font-size
     // or if we finished with the font-size and we need to render all the strings in order to
     // determine the maxHeight, maxWidth and maxDigitWidth
-    if (this.state.fontSizeDirection !== 0) {
-      return this.renderLine(this.state.lineToMeasure);
+    if (fontSizeDirection !== 0) {
+      return this.renderLine(lineToMeasure);
     }
     return (
-      <g>
-        {this.state.textArray.map(line =>
-          this.renderLine(line),
-        )
-        }
+      <g aria-hidden>
+        {textArray.map((line) => this.renderLine(line))}
         <text
           fontFamily="Arial"
-          fontSize={this.state.calcFontSize}
-          ref={(ref) => { this[`${this.props.annotation.id}_digit`] = ref; }}
+          fontSize={calcFontSize}
+          ref={(ref) => { this[`${annotation.id}_digit`] = ref; }}
         >
           <tspan>
             0
@@ -525,19 +618,39 @@ export default class PollDrawComponent extends Component {
   }
 
   render() {
+    const { intl, annotation } = this.props;
+    const { prepareToDisplay, textArray } = this.state;
+    let ariaResultLabel;
+
+    const { pollType, numResponders } = annotation;
+    if (pollType === PollService.pollTypes.Response && numResponders === 0) {
+      const noResponseLabel = intl.formatMessage(intlMessages.noResponsesFromUserResponsePoll);
+      ariaResultLabel = `${intl.formatMessage(intlMessages.pollResultAria)}: ${noResponseLabel}}`;
+      return (
+        <g aria-label={ariaResultLabel} data-test="pollResultAria"></g>
+      );
+    }
+
+    ariaResultLabel = `${intl.formatMessage(intlMessages.pollResultAria)}: `;
+    textArray.forEach((t, idx) => {
+      const pollLine = t.slice(0, -1);
+      ariaResultLabel += `${idx > 0 ? ' |' : ''} ${pollLine.join(' | ')}`;
+    });
+
     return (
-      <g>
-        {this.state.prepareToDisplay ?
-          this.renderTestStrings()
-          :
-          this.renderPoll()
-        }
+      <g aria-label={ariaResultLabel} data-test="pollResultAria">
+        {prepareToDisplay
+          ? this.renderTestStrings()
+          : this.renderPoll()}
       </g>
     );
   }
 }
 
+export default injectIntl(PollDrawComponent);
+
 PollDrawComponent.propTypes = {
+  intl: PropTypes.object.isRequired,
   // Defines an annotation object, which contains all the basic info we need to draw a line
   annotation: PropTypes.shape({
     id: PropTypes.string.isRequired,

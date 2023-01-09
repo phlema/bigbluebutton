@@ -10,8 +10,8 @@ trait PreuploadedPresentationsPubMsgHdlr {
   this: PresentationApp2x =>
 
   def handle(
-    msg:         PreuploadedPresentationsSysPubMsg,
-    liveMeeting: LiveMeeting, bus: MessageBus
+      msg:         PreuploadedPresentationsSysPubMsg,
+      liveMeeting: LiveMeeting, bus: MessageBus
   ): Unit = {
 
     val presos = new collection.mutable.HashMap[String, Presentation]
@@ -20,13 +20,13 @@ trait PreuploadedPresentationsPubMsgHdlr {
       val pages = new collection.mutable.HashMap[String, PageVO]()
 
       pres.pages.foreach { p =>
-        val page = new PageVO(p.id, p.num, p.thumbUri, p.swfUri, p.txtUri, p.svgUri, p.current, p.xOffset, p.yOffset,
+        val page = new PageVO(p.id, p.num, p.thumbUri, p.txtUri, p.svgUri, p.current, p.xOffset, p.yOffset,
           p.widthRatio, p.heightRatio)
         pages += page.id -> page
       }
 
       val pr = new Presentation(pres.id, pres.name, pres.current,
-        pages.toMap, pres.downloadable)
+        pages.toMap, pres.downloadable, pres.removable)
       presos += pres.id -> pr
     }
 

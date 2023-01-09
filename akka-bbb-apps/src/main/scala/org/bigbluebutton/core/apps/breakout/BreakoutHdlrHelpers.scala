@@ -8,12 +8,36 @@ import org.bigbluebutton.core.domain.{ BreakoutUser, BreakoutVoiceUser }
 import org.bigbluebutton.core.models.{ Users2x, VoiceUsers }
 import org.bigbluebutton.core.running.{ LiveMeeting, OutMsgRouter }
 
-trait BreakoutHdlrHelpers extends SystemConfiguration {
-  val liveMeeting: LiveMeeting
-  val outGW: OutMsgRouter
-  val eventBus: InternalEventBus
+object BreakoutHdlrHelpers extends SystemConfiguration {
+  def sendJoinURL(
+      liveMeeting:       LiveMeeting,
+      outGW:             OutMsgRouter,
+      userId:            String,
+      externalMeetingId: String,
+      roomSequence:      String,
+      breakoutId:        String
+  ) {
+    for {
+      (redirectToHtml5JoinURL, redirectJoinURL) <- getRedirectUrls(liveMeeting, userId, externalMeetingId, roomSequence)
+    } yield {
+      sendJoinURLMsg(
+        outGW,
+        liveMeeting.props.meetingProp.intId,
+        breakoutId,
+        externalMeetingId,
+        userId,
+        redirectJoinURL,
+        redirectToHtml5JoinURL
+      )
+    }
+  }
 
-  def sendJoinURL(userId: String, externalMeetingId: String, roomSequence: String, breakoutId: String) {
+  def getRedirectUrls(
+      liveMeeting:       LiveMeeting,
+      userId:            String,
+      externalMeetingId: String,
+      roomSequence:      String
+  ): Option[(String, String)] = {
     for {
       user <- Users2x.findWithIntId(liveMeeting.users2x, userId)
       apiCall = "join"
@@ -28,13 +52,19 @@ trait BreakoutHdlrHelpers extends SystemConfiguration {
       redirectToHtml5JoinURL = BreakoutRoomsUtil.createJoinURL(bbbWebAPI, apiCall, redirectToHtml5BaseString,
         BreakoutRoomsUtil.calculateChecksum(apiCall, redirectToHtml5BaseString, bbbWebSharedSecret))
     } yield {
-      sendJoinURLMsg(liveMeeting.props.meetingProp.intId, breakoutId, externalMeetingId,
-        userId, redirectJoinURL, redirectToHtml5JoinURL)
+      (redirectToHtml5JoinURL, redirectJoinURL)
     }
   }
 
-  def sendJoinURLMsg(meetingId: String, breakoutId: String, externalId: String,
-                     userId: String, redirectJoinURL: String, redirectToHtml5JoinURL: String): Unit = {
+  def sendJoinURLMsg(
+      outGW:                  OutMsgRouter,
+      meetingId:              String,
+      breakoutId:             String,
+      externalId:             String,
+      userId:                 String,
+      redirectJoinURL:        String,
+      redirectToHtml5JoinURL: String
+  ): Unit = {
     def build(meetingId: String, breakoutId: String,
               userId: String, redirectJoinURL: String, redirectToHtml5JoinURL: String): BbbCommonEnvCoreMsg = {
       val routing = Routing.addMsgToClientRouting(MessageTypes.DIRECT, meetingId, userId)
@@ -52,7 +82,33 @@ trait BreakoutHdlrHelpers extends SystemConfiguration {
 
   }
 
-  def updateParentMeetingWithUsers(): Unit = {
+  def sendChangeUserBreakoutMsg(
+      outGW:                  OutMsgRouter,
+      meetingId:              String,
+      userId:                 String,
+      fromBreakoutId:         String,
+      toBreakoutId:           String,
+      redirectToHtml5JoinURL: String
+  ): Unit = {
+    def build(meetingId: String, userId: String, fromBreakoutId: String, toBreakoutId: String, redirectToHtml5JoinURL: String): BbbCommonEnvCoreMsg = {
+      val routing = Routing.addMsgToClientRouting(MessageTypes.DIRECT, meetingId, userId)
+      val envelope = BbbCoreEnvelope(ChangeUserBreakoutEvtMsg.NAME, routing)
+      val header = BbbClientMsgHeader(ChangeUserBreakoutEvtMsg.NAME, meetingId, userId)
+
+      val body = ChangeUserBreakoutEvtMsgBody(meetingId, userId, fromBreakoutId, toBreakoutId, redirectToHtml5JoinURL)
+      val event = ChangeUserBreakoutEvtMsg(header, body)
+      BbbCommonEnvCoreMsg(envelope, event)
+    }
+
+    val msgEvent = build(meetingId, userId, fromBreakoutId, toBreakoutId, redirectToHtml5JoinURL)
+    outGW.send(msgEvent)
+
+  }
+
+  def updateParentMeetingWithUsers(
+      liveMeeting: LiveMeeting,
+      eventBus:    InternalEventBus
+  ): Unit = {
 
     val users = Users2x.findAll(liveMeeting.users2x)
     val breakoutUsers = users map { u => new BreakoutUser(u.extId, u.name) }

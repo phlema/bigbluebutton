@@ -1,7 +1,4 @@
 import Storage from '/imports/ui/services/storage/session';
-import Users from '/imports/api/users';
-import Auth from '/imports/ui/services/auth';
-import WhiteboardMultiUser from '/imports/api/whiteboard-multi-user/';
 
 const DRAW_SETTINGS = 'drawSettings';
 
@@ -21,16 +18,6 @@ const resetTextShapeActiveId = () => {
   }
 };
 
-const isPresenter = () => {
-  const currentUser = Users.findOne({ userId: Auth.userID });
-  return currentUser ? currentUser.presenter : false;
-};
-
-const getMultiUserStatus = () => {
-  const data = WhiteboardMultiUser.findOne({ meetingId: Auth.meetingID });
-  return data ? data.multiUser : false;
-};
-
 const activeTextShapeId = () => {
   const drawSettings = Storage.getItem(DRAW_SETTINGS);
   return drawSettings ? drawSettings.textShape.textShapeActiveId : '';
@@ -39,7 +26,5 @@ const activeTextShapeId = () => {
 export default {
   setTextShapeValue,
   activeTextShapeId,
-  isPresenter,
   resetTextShapeActiveId,
-  getMultiUserStatus,
 };

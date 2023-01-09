@@ -1,11 +1,15 @@
 
 const calculateSlideData = (slideData) => {
-  const { width, height, xOffset, yOffset, widthRatio, heightRatio } = slideData;
+  const {
+    width, height, xOffset, yOffset, widthRatio, heightRatio,
+  } = slideData;
 
   // calculating viewBox and offsets for the current presentation
   return {
-    x: ((-xOffset * 2) * width) / 100,
-    y: ((-yOffset * 2) * height) / 100,
+    width,
+    height,
+    x: xOffset,
+    y: yOffset,
     viewBoxWidth: (width * widthRatio) / 100,
     viewBoxHeight: (height * heightRatio) / 100,
   };

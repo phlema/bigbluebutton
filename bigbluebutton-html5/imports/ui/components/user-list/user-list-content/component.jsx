@@ -1,77 +1,52 @@
-import React, { Component } from 'react';
+import React, { PureComponent } from 'react';
 import PropTypes from 'prop-types';
-import { styles } from './styles';
-import UserParticipants from './user-participants/component';
-import UserMessages from './user-messages/component';
+import Styled from './styles';
+import UserParticipantsContainer from './user-participants/container';
+import UserMessagesContainer from './user-messages/container';
+import UserNotesContainer from './user-notes/container';
+import UserCaptionsContainer from './user-captions/container';
+import WaitingUsersContainer from './waiting-users/container';
+import UserPollsContainer from './user-polls/container';
+import BreakoutRoomContainer from './breakout-room/container';
+import { isChatEnabled } from '/imports/ui/services/features';
 
 const propTypes = {
-  openChats: PropTypes.arrayOf(String).isRequired,
-  users: PropTypes.arrayOf(Object).isRequired,
-  compact: PropTypes.bool,
-  intl: PropTypes.shape({
-    formatMessage: PropTypes.func.isRequired,
-  }).isRequired,
   currentUser: PropTypes.shape({}).isRequired,
-  meeting: PropTypes.shape({}),
-  isBreakoutRoom: PropTypes.bool,
-  getAvailableActions: PropTypes.func.isRequired,
-  normalizeEmojiName: PropTypes.func.isRequired,
-  isMeetingLocked: PropTypes.func.isRequired,
-  isPublicChat: PropTypes.func.isRequired,
-  setEmojiStatus: PropTypes.func.isRequired,
-  assignPresenter: PropTypes.func.isRequired,
-  removeUser: PropTypes.func.isRequired,
-  toggleVoice: PropTypes.func.isRequired,
-  changeRole: PropTypes.func.isRequired,
-  roving: PropTypes.func.isRequired,
 };
 
-const defaultProps = {
-  compact: false,
-  isBreakoutRoom: false,
-  // This one is kinda tricky, meteor takes sometime to fetch the data and passing down
-  // So the first time its create, the meeting comes as null, sending an error to the client.
-  meeting: {},
-};
+const ROLE_MODERATOR = Meteor.settings.public.user.role_moderator;
+const ALWAYS_SHOW_WAITING_ROOM = Meteor.settings.public.app.alwaysShowWaitingRoomUI;
 
-class UserContent extends Component {
+class UserContent extends PureComponent {
   render() {
+    const {
+      currentUser,
+      pendingUsers,
+      isWaitingRoomEnabled,
+      isGuestLobbyMessageEnabled,
+      compact,
+    } = this.props;
+
+    const showWaitingRoom = (ALWAYS_SHOW_WAITING_ROOM && isWaitingRoomEnabled)
+      || pendingUsers.length > 0;
+
     return (
-      <div
-        data-test="userListContent"
-        className={styles.content}
-        role="complementary"
-      >
-        <UserMessages
-          isPublicChat={this.props.isPublicChat}
-          openChats={this.props.openChats}
-          compact={this.props.compact}
-          intl={this.props.intl}
-          roving={this.props.roving}
-        />
-        <UserParticipants
-          users={this.props.users}
-          compact={this.props.compact}
-          intl={this.props.intl}
-          currentUser={this.props.currentUser}
-          meeting={this.props.meeting}
-          isBreakoutRoom={this.props.isBreakoutRoom}
-          setEmojiStatus={this.props.setEmojiStatus}
-          assignPresenter={this.props.assignPresenter}
-          removeUser={this.props.removeUser}
-          toggleVoice={this.props.toggleVoice}
-          changeRole={this.props.changeRole}
-          getAvailableActions={this.props.getAvailableActions}
-          normalizeEmojiName={this.props.normalizeEmojiName}
-          isMeetingLocked={this.props.isMeetingLocked}
-          roving={this.props.roving}
-        />
-      </div>
+      <Styled.Content data-test="userListContent">
+        {isChatEnabled() ? <UserMessagesContainer /> : null}
+        {currentUser.role === ROLE_MODERATOR ? <UserCaptionsContainer /> : null}
+        <UserNotesContainer />
+        {showWaitingRoom && currentUser.role === ROLE_MODERATOR
+          ? (
+            <WaitingUsersContainer {...{ pendingUsers }} />
+          ) : null}
+        <UserPollsContainer isPresenter={currentUser.presenter} />
+        <BreakoutRoomContainer />
+        <UserParticipantsContainer compact={compact}/>
+      </Styled.Content>
     );
   }
 }
 
 UserContent.propTypes = propTypes;
-UserContent.defaultProps = defaultProps;
 
 export default UserContent;

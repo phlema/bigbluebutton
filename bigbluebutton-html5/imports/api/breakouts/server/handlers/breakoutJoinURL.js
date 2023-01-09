@@ -16,28 +16,37 @@ export default function handleBreakoutJoinURL({ body }) {
   };
 
   const modifier = {
-    $push: {
-      users: {
-        userId,
+    $set: {
+      [`url_${userId}`]: {
         redirectToHtml5JoinURL,
+        insertedTime: new Date().getTime(),
       },
     },
   };
 
-  const cb = (cbErr, numChanged) => {
-    if (cbErr) {
-      return Logger.error(`Adding breakout to collection: ${cbErr}`);
-    }
+  try {
+    const ATTEMPT_EVERY_MS = 1000;
 
-    const {
-      insertedId,
-    } = numChanged;
-    if (insertedId) {
-      return Logger.info(`Added breakout id=${breakoutId}`);
-    }
+    let numberAffected = 0;
 
-    return Logger.info(`Upserted breakout id=${breakoutId}`);
-  };
+    const updateBreakout = Meteor.bindEnvironment(() => {
+      numberAffected = Breakouts.update(selector, modifier);
+    });
 
-  return Breakouts.upsert(selector, modifier, cb);
+    const updateBreakoutPromise = new Promise((resolve) => {
+      const updateBreakoutInterval = setInterval(() => {
+        updateBreakout();
+
+        if (numberAffected) {
+          resolve(clearInterval(updateBreakoutInterval));
+        }
+      }, ATTEMPT_EVERY_MS);
+    });
+
+    updateBreakoutPromise.then(() => {
+      Logger.info(`Upserted breakout id=${breakoutId}`);
+    });
+  } catch (err) {
+    Logger.error(`Adding breakout to collection: ${err}`);
+  }
 }

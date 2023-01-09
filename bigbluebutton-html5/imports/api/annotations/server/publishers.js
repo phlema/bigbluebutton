@@ -1,24 +1,26 @@
 import Annotations from '/imports/api/annotations';
 import { Meteor } from 'meteor/meteor';
-import { check } from 'meteor/check';
 import Logger from '/imports/startup/server/logger';
-import mapToAcl from '/imports/startup/mapToAcl';
+import AuthTokenValidation, { ValidationStates } from '/imports/api/auth-token-validation';
 
-function annotations(credentials) {
-  const { meetingId, requesterUserId, requesterToken } = credentials;
+function annotations() {
+  const tokenValidation = AuthTokenValidation.findOne({ connectionId: this.connection.id });
 
-  check(meetingId, String);
-  check(requesterUserId, String);
-  check(requesterToken, String);
+  if (!tokenValidation || tokenValidation.validationStatus !== ValidationStates.VALIDATED) {
+    Logger.warn(`Publishing Annotations was requested by unauth connection ${this.connection.id}`);
+    return Annotations.find({ meetingId: '' });
+  }
 
-  Logger.info(`Publishing Annotations for ${meetingId} ${requesterUserId} ${requesterToken}`);
+  const { meetingId, userId } = tokenValidation;
+
+  Logger.debug('Publishing Annotations', { meetingId, userId });
 
   return Annotations.find({ meetingId });
 }
 
 function publish(...args) {
   const boundAnnotations = annotations.bind(this);
-  return mapToAcl('subscriptions.annotations', boundAnnotations)(args);
+  return boundAnnotations(...args);
 }
 
 Meteor.publish('annotations', publish);

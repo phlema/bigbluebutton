@@ -1,34 +1,43 @@
 import { Meteor } from 'meteor/meteor';
-import Winston from 'winston';
+import { createLogger, format, transports } from 'winston';
+import WinstonPromTransport from './prom-metrics/winstonPromTransport';
 
-const Logger = new Winston.Logger();
+const LOG_CONFIG = Meteor?.settings?.private?.serverLog || {};
+const { level, includeServerInfo } = LOG_CONFIG;
 
-Logger.configure({
-  levels: {
-    error: 0, warn: 1, info: 2, verbose: 3, debug: 4,
-  },
-  colors: {
-    error: 'red',
-    warn: 'yellow',
-    info: 'green',
-    verbose: 'cyan',
-    debug: 'magenta',
-  },
+const serverInfoFormat = format.printf(({ level, message, timestamp, ...metadata }) => {
+  const instanceId = parseInt(process.env.INSTANCE_ID, 10) || 1;
+  const role = process.env.BBB_HTML5_ROLE;
+  const server = includeServerInfo && !Meteor?.isDevelopment ? `${role}-${instanceId} ` : "";
+
+  const msg = `${timestamp} ${server}[${level}] : ${message}`;
+  const meta = Object.keys(metadata).length ? JSON.stringify(metadata) : '';
+  return `${msg} ${meta}`;
 });
 
-Meteor.startup(() => {
-  const LOG_CONFIG = Meteor.settings.private.log || {};
-  const { level } = LOG_CONFIG;
-
-  // console logging
-  Logger.add(Winston.transports.Console, {
-    prettyPrint: false,
-    humanReadableUnhandledException: true,
-    colorize: true,
-    handleExceptions: true,
-    level,
-  });
-
+const Logger = createLogger({
+  level,
+  format: format.combine(
+    format.colorize({ level: true }),
+    format.splat(),
+    format.simple(),
+    format.timestamp(),
+    serverInfoFormat,
+  ),
+  transports: [
+    // console logging
+    new transports.Console({
+      prettyPrint: false,
+      humanReadableUnhandledException: true,
+      colorize: true,
+      handleExceptions: true,
+      level,
+    }),
+    // export error logs to prometheus
+    new WinstonPromTransport({
+      level: 'error',
+    }),
+  ],
 });
 
 export default Logger;

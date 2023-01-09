@@ -27,11 +27,11 @@
 require File.expand_path('../../../lib/recordandplayback', __FILE__)
 
 require 'rubygems'
-require 'trollop'
+require 'optimist'
 require 'yaml'
 require 'json'
 
-opts = Trollop::options do
+opts = Optimist::options do
   opt :meeting_id, "Meeting id to archive", :default => '58f4a6b3-cd07-444d-8564-59116cb53974', :type => String
 end
 
@@ -114,7 +114,7 @@ if not FileTest.directory?(target_dir)
     end
 
     participants = recording.at_xpath("participants")
-    participants.content = BigBlueButton::Events.get_num_participants("#{raw_archive_dir}/events.xml")
+    participants.content = BigBlueButton::Events.get_num_participants(@doc)
 
     ## Remove empty meta
     metadata.search('//recording/meta').each do |meta|
